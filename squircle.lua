@@ -266,3 +266,105 @@ local function setup_arc()
   a.delta = on_arc_delta
   a.key = on_arc_key
 end
+
+-- ---------------------------------------------------------------------------
+-- Sequencer tick
+-- ---------------------------------------------------------------------------
+
+-- Number of step slots crossed going from prev to cur on a circular axis
+-- of `num` slots, in direction `dir` (+1 forward, -1 backward).
+local function steps_between(prev, cur, num, dir)
+  if dir > 0 then
+    return (cur - prev) % num
+  else
+    return (prev - cur) % num
+  end
+end
+
+-- Apply a gate transition for voice v: send note_on on a rising edge
+-- (using the currently armed pitch from pitch_lane[pitch_idx]) and
+-- note_off on a falling edge (using whatever note we last sent).
+local function apply_gate(v, gate_on)
+  local voice = voices[v]
+  if gate_on and not voice.gate_high then
+    local note = voice.pitch_lane[voice.pitch_idx]
+    if note and m then
+      local ch = params:get("v" .. v .. "_ch")
+      local vel = params:get("velocity")
+      m:note_on(note, vel, ch)
+      voice.last_note = note
+    end
+    voice.gate_high = true
+  elseif not gate_on and voice.gate_high then
+    if voice.last_note and m then
+      local ch = params:get("v" .. v .. "_ch")
+      m:note_off(voice.last_note, 0, ch)
+    end
+    voice.last_note = nil
+    voice.gate_high = false
+  end
+end
+
+-- Advance voice v's pitch index for each slot crossed by its phasor.
+local function handle_pitch_ring(v, prev_phase, cur_phase, dir)
+  local lane = voices[v].pitch_lane
+  if #lane == 0 then
+    return
+  end
+  local slot_w = PHASE_MAX / #lane
+  local prev_slot = math.floor(prev_phase / slot_w)
+  local cur_slot = math.floor(cur_phase / slot_w)
+  local crossings = steps_between(prev_slot, cur_slot, #lane, dir)
+  for _ = 1, crossings do
+    if dir > 0 then
+      voices[v].pitch_idx = (voices[v].pitch_idx % #lane) + 1
+    else
+      voices[v].pitch_idx = ((voices[v].pitch_idx - 2) % #lane) + 1
+    end
+  end
+end
+
+-- Walk voice v's rhythm pattern step-by-step for each slot crossed.
+-- Each new step is evaluated as a gate edge, so even a fast phasor that
+-- traverses several steps in one tick fires balanced note_on/note_off
+-- pairs in order.
+local function handle_rhythm_ring(v, prev_phase, cur_phase, dir)
+  local pat = voices[v].rhythm
+  if #pat == 0 then
+    return
+  end
+  local slot_w = PHASE_MAX / #pat
+  local prev_slot = math.floor(prev_phase / slot_w)
+  local cur_slot = math.floor(cur_phase / slot_w)
+  local crossings = steps_between(prev_slot, cur_slot, #pat, dir)
+  for _ = 1, crossings do
+    if dir > 0 then
+      voices[v].gate_idx = (voices[v].gate_idx % #pat) + 1
+    else
+      voices[v].gate_idx = ((voices[v].gate_idx - 2) % #pat) + 1
+    end
+    apply_gate(v, pat[voices[v].gate_idx])
+  end
+end
+
+-- One tick of the engine: advance every ring with non-zero speed, dispatch
+-- to its pitch/rhythm handler, mark dirty so the redraw loop refreshes.
+local function tick_step()
+  for n = 1, NUM_RINGS do
+    local r = rings[n]
+    if r.speed ~= 0 then
+      local prev = r.phase
+      local cur = (prev + r.speed) % PHASE_MAX
+      r.phase = cur
+      local dir = r.speed > 0 and 1 or -1
+      local v = math.ceil(n / 2)
+      if n % 2 == 1 then
+        handle_pitch_ring(v, prev, cur, dir)
+      else
+        handle_rhythm_ring(v, prev, cur, dir)
+      end
+      dirty = true
+      screen_dirty = true
+    end
+  end
+end

@@ -96,3 +96,169 @@ local function panic()
     voices[v].gate_high = false
   end
 end
+
+-- ---------------------------------------------------------------------------
+-- Params
+-- ---------------------------------------------------------------------------
+
+-- Forward declarations: setup_params wires set_action callbacks that invoke
+-- these regen helpers. Their bodies live further down.
+local regen_pitch_lane
+local regen_pitch_lanes
+local regen_rhythm
+local regen_rhythms
+
+-- musicutil.SCALES is an array of { name = "Major", intervals = {...} }.
+-- Build a parallel name list for the scale option param.
+local scale_names = {}
+for i, s in ipairs(musicutil.SCALES) do
+  scale_names[i] = s.name
+end
+
+-- Find the default scale by name (fall back to 1 = Major if missing).
+local function scale_index(name)
+  for i, s in ipairs(musicutil.SCALES) do
+    if s.name == name then
+      return i
+    end
+  end
+  return 1
+end
+
+local function setup_params()
+  rebuild_midi_devices()
+
+  params:add_separator("squircle_sep", "SQUIRCLE")
+
+  params:add_option("midi_target", "midi out", midi_device_names, 1)
+  params:set_action("midi_target", function()
+    refresh_midi_target()
+    panic()
+  end)
+
+  params:add_group("voices", 6)
+  params:add_number("v1_ch", "voice 1 channel", 1, 16, 1)
+  params:add_number("v2_ch", "voice 2 channel", 1, 16, 2)
+  params:add_number("velocity", "velocity", 1, 127, 100)
+  params:add_option("root", "root", musicutil.NOTE_NAMES, 1) -- C
+  params:set_action("root", function()
+    regen_pitch_lanes()
+  end)
+  params:add_option("scale", "scale", scale_names, scale_index("Natural Minor"))
+  params:set_action("scale", function()
+    regen_pitch_lanes()
+  end)
+  params:add_number("lane_len", "pitch lane length", 3, 12, 5)
+  params:set_action("lane_len", function()
+    regen_pitch_lanes()
+  end)
+
+  params:add_group("rhythm", 4)
+  params:add_number("v1_steps", "v1 rhythm steps", 4, 32, 16)
+  params:set_action("v1_steps", function(v)
+    if params:get("v1_pulses") > v then
+      params:set("v1_pulses", v)
+    end
+    regen_rhythm(1)
+  end)
+  params:add_number("v1_pulses", "v1 rhythm pulses", 1, 32, 5)
+  params:set_action("v1_pulses", function()
+    regen_rhythm(1)
+  end)
+  params:add_number("v2_steps", "v2 rhythm steps", 4, 32, 16)
+  params:set_action("v2_steps", function(v)
+    if params:get("v2_pulses") > v then
+      params:set("v2_pulses", v)
+    end
+    regen_rhythm(2)
+  end)
+  params:add_number("v2_pulses", "v2 rhythm pulses", 1, 32, 7)
+  params:set_action("v2_pulses", function()
+    regen_rhythm(2)
+  end)
+
+  params:bang()
+end
+
+-- ---------------------------------------------------------------------------
+-- Params
+-- ---------------------------------------------------------------------------
+
+-- Forward declarations: setup_params wires set_action callbacks that invoke
+-- these regen helpers. Defined further down.
+local regen_pitch_lanes
+local regen_pitch_lane
+local regen_rhythm
+local regen_rhythms
+
+-- musicutil.SCALES is an array of { name = "Major", intervals = {...} }.
+-- Build a parallel name list for the scale option param.
+local scale_names = {}
+for i, s in ipairs(musicutil.SCALES) do
+  scale_names[i] = s.name
+end
+
+-- Find the default scale by name (fall back to 1 = Major if missing).
+local function scale_index(name)
+  for i, s in ipairs(musicutil.SCALES) do
+    if s.name == name then
+      return i
+    end
+  end
+  return 1
+end
+
+local function setup_params()
+  rebuild_midi_devices()
+
+  params:add_separator("squircle_sep", "SQUIRCLE")
+
+  params:add_option("midi_target", "midi out", midi_device_names, 1)
+  params:set_action("midi_target", function()
+    refresh_midi_target()
+    panic()
+  end)
+
+  params:add_group("voices", 6)
+  params:add_number("v1_ch", "voice 1 channel", 1, 16, 1)
+  params:add_number("v2_ch", "voice 2 channel", 1, 16, 2)
+  params:add_number("velocity", "velocity", 1, 127, 100)
+  params:add_option("root", "root", musicutil.NOTE_NAMES, 1) -- C
+  params:set_action("root", function()
+    regen_pitch_lanes()
+  end)
+  params:add_option("scale", "scale", scale_names, scale_index("Natural Minor"))
+  params:set_action("scale", function()
+    regen_pitch_lanes()
+  end)
+  params:add_number("lane_len", "pitch lane length", 3, 12, 5)
+  params:set_action("lane_len", function()
+    regen_pitch_lanes()
+  end)
+
+  params:add_group("rhythm", 4)
+  params:add_number("v1_steps", "v1 rhythm steps", 4, 32, 16)
+  params:set_action("v1_steps", function(v)
+    if params:get("v1_pulses") > v then
+      params:set("v1_pulses", v)
+    end
+    regen_rhythm(1)
+  end)
+  params:add_number("v1_pulses", "v1 rhythm pulses", 1, 32, 5)
+  params:set_action("v1_pulses", function()
+    regen_rhythm(1)
+  end)
+  params:add_number("v2_steps", "v2 rhythm steps", 4, 32, 16)
+  params:set_action("v2_steps", function(v)
+    if params:get("v2_pulses") > v then
+      params:set("v2_pulses", v)
+    end
+    regen_rhythm(2)
+  end)
+  params:add_number("v2_pulses", "v2 rhythm pulses", 1, 32, 7)
+  params:set_action("v2_pulses", function()
+    regen_rhythm(2)
+  end)
+
+  params:bang()
+end

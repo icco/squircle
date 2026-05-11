@@ -58,3 +58,41 @@ local a -- arc.connect()
 local m -- midi.connect(target) -- the currently selected midi out device
 local dirty = true -- arc needs a redraw
 local screen_dirty = true -- norns screen needs a redraw
+
+-- ---------------------------------------------------------------------------
+-- MIDI devices
+-- ---------------------------------------------------------------------------
+
+local midi_devices = {}
+local midi_device_names = {}
+
+local function rebuild_midi_devices()
+  midi_devices = {}
+  midi_device_names = {}
+  for i = 1, #midi.vports do
+    midi_devices[i] = midi.connect(i)
+    local name = midi_devices[i].name or ("port " .. i)
+    midi_device_names[i] = i .. ": " .. util.trim_string_to_width(name, 80)
+  end
+end
+
+-- Re-point `m` at the currently selected device. Called from the
+-- "midi_target" param action and on hot-plug.
+local function refresh_midi_target()
+  local target = params:get("midi_target")
+  m = midi_devices[target]
+end
+
+-- Send all-notes-off (CC 123) on every channel we use. Defensive against a
+-- stuck note when changing devices, panicking, or cleaning up.
+local function panic()
+  if m == nil then
+    return
+  end
+  for v = 1, NUM_VOICES do
+    local ch = params:get("v" .. v .. "_ch")
+    m:cc(123, 0, ch)
+    voices[v].last_note = nil
+    voices[v].gate_high = false
+  end
+end

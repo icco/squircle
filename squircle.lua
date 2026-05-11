@@ -1,10 +1,7 @@
 -- squircle: dual midi sequencer for arc
 -- v0.3.0 @icco
 --
--- snows-mode: a slowly moving sequencer per voice. Each voice has its
--- own root, scale, octave, and lane of N slots (3..32). Arc 2 / 4
--- chooses how many slots are pulses (Euclidean), so dots light up on
--- the matching arc 1 / 3 cluster as you turn it up.
+-- snows-mode slow sequencer; per-voice key, lane (3..32), Euclidean density
 --
 -- arc 1 / 3 : voice phasor speed   (snows cluster: pulse / rest / armed)
 -- arc 2 / 4 : voice density        (Euclidean pulses, 0..100% of lane)
@@ -17,9 +14,7 @@
 local musicutil = require("musicutil")
 local er = require("er")
 
--- ---------------------------------------------------------------------------
--- Constants
--- ---------------------------------------------------------------------------
+-- === Constants ===
 
 local TICK_HZ = 60
 local RING_LEDS = 64
@@ -29,22 +24,16 @@ local SPEED_CLAMP = 32
 local NUM_VOICES = 2
 local NUM_RINGS = 4
 
--- ring layout: voice v owns rings (v*2 - 1) sequence and (v*2) density
+-- voice v owns ring (v*2 - 1) sequence and (v*2) density
 local SEQ_RING = { 1, 3 }
 local PULSE_RING = { 2, 4 }
 
 local LANE_LEN_MIN = 3
 local LANE_LEN_MAX = 32
-
--- Pulses share lane bounds: 0 = silence, lane_len = every slot fires.
-local LANE_LEN_MIN_PULSES = 0
-
 local OCTAVE_MIN = 0
 local OCTAVE_MAX = 8
 
--- ---------------------------------------------------------------------------
--- State
--- ---------------------------------------------------------------------------
+-- === State ===
 
 local phasors = {}
 for v = 1, NUM_VOICES do
@@ -54,7 +43,6 @@ end
 local voices = {}
 for v = 1, NUM_VOICES do
   voices[v] = {
-    ch = v,
     pitch_lane = {}, -- length = lane_len, MIDI notes
     rhythm = {}, -- same length, true = pulse, false = rest
     pitch_idx = 1,
@@ -63,7 +51,7 @@ for v = 1, NUM_VOICES do
   }
 end
 
--- Arc delta accumulator (one per ring) for snows-style coarse stepping.
+-- snows-style coarse stepping: one accumulator per arc ring
 local arc_ticks = { 0, 0, 0, 0 }
 
 local a -- arc.connect()
@@ -71,9 +59,7 @@ local m -- midi.connect(target)
 local dirty = true
 local screen_dirty = true
 
--- ---------------------------------------------------------------------------
--- MIDI devices
--- ---------------------------------------------------------------------------
+-- === MIDI devices ===
 
 local midi_devices = {}
 local midi_device_names = {}
@@ -104,11 +90,8 @@ local function panic()
   end
 end
 
--- ---------------------------------------------------------------------------
--- Params
--- ---------------------------------------------------------------------------
+-- === Params ===
 
--- Forward decls; setup_params set_actions call these.
 local regen_pitch_lane
 local regen_rhythm
 
@@ -166,7 +149,7 @@ local function setup_params()
       regen_pitch_lane(v)
       regen_rhythm(v)
     end)
-    params:add_number("v" .. v .. "_pulses", "pulses", LANE_LEN_MIN_PULSES, LANE_LEN_MAX, 1)
+    params:add_number("v" .. v .. "_pulses", "pulses", 0, LANE_LEN_MAX, 1)
     params:set_action("v" .. v .. "_pulses", function(p)
       local len = params:get("v" .. v .. "_lane_len")
       if p > len then
@@ -180,9 +163,7 @@ local function setup_params()
   params:bang()
 end
 
--- ---------------------------------------------------------------------------
--- Pattern generation
--- ---------------------------------------------------------------------------
+-- === Pattern generation ===
 
 function regen_pitch_lane(v)
   local root_idx = params:get("v" .. v .. "_root")
@@ -214,9 +195,7 @@ function regen_rhythm(v)
   screen_dirty = true
 end
 
--- ---------------------------------------------------------------------------
--- Arc input
--- ---------------------------------------------------------------------------
+-- === Arc input ===
 
 -- snows arc_res(i, 4) emulated in software (no hardware-res arc API on norns).
 local function on_arc_delta(n, d)
@@ -262,9 +241,7 @@ local function setup_arc()
   a.key = on_arc_key
 end
 
--- ---------------------------------------------------------------------------
--- Sequencer tick
--- ---------------------------------------------------------------------------
+-- === Sequencer tick ===
 
 -- Slots crossed prev -> cur on a circle of `num`, direction `dir`.
 local function steps_between(prev, cur, num, dir)
@@ -332,9 +309,7 @@ local function tick_step()
   end
 end
 
--- ---------------------------------------------------------------------------
--- Arc drawing
--- ---------------------------------------------------------------------------
+-- === Arc drawing ===
 
 -- snows.lua triple-LED interpolated cursor.
 local function point(ring, x)
@@ -393,9 +368,7 @@ local function draw_arc()
   end
 end
 
--- ---------------------------------------------------------------------------
--- Norns hardware callbacks
--- ---------------------------------------------------------------------------
+-- === Norns hardware callbacks ===
 
 -- K1 is reserved (quick tap exits to menu). K2 / K3 cycle each voice's
 -- scale forward (wraps at the end of musicutil.SCALES).
@@ -499,9 +472,7 @@ function redraw()
   screen.update()
 end
 
--- ---------------------------------------------------------------------------
--- Lifecycle
--- ---------------------------------------------------------------------------
+-- === Lifecycle ===
 
 local tick_clock_id
 local screen_clock_id
@@ -532,17 +503,9 @@ end
 
 function init()
   setup_params()
-  refresh_midi_target()
   setup_arc()
-
   tick_clock_id = clock.run(tick_loop)
   screen_clock_id = clock.run(screen_loop)
-
-  redraw()
-  draw_arc()
-  if a then
-    a:refresh()
-  end
 end
 
 function cleanup()

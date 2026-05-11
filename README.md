@@ -31,7 +31,7 @@ enc 1 root   enc 2 scale   enc 3 velocity
 key 2 regen pitches   key 3 regen rhythms
 ```
 
-K1 is reserved by norns (quick tap exits to menu), so it isn't bound. Panic, per-voice lane length, MIDI channels, and rhythm step count live in PARAMETERS. Arc feel matches snows via the **arc sensitivity** param (default `4`, mirrors `arc_res(i, 4)` in software).
+Defaults to one note per phasor rotation (snows-mode); turn arc 2 / 4 up for more notes per rotation. K1 is reserved by norns (quick tap exits to menu), so it isn't bound. Panic, per-voice lane length, MIDI channels, and rhythm step count live in PARAMETERS. Arc feel matches snows via the **arc sensitivity** param (default `4`, mirrors `arc_res(i, 4)` in software).
 
 ## parameters
 

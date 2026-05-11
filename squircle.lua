@@ -169,7 +169,7 @@ local function setup_params()
     end
     regen_rhythm(1)
   end)
-  params:add_number("v1_pulses", "v1 rhythm pulses", PULSES_MIN, PULSES_MAX, 16)
+  params:add_number("v1_pulses", "v1 rhythm pulses", PULSES_MIN, PULSES_MAX, 1)
   params:set_action("v1_pulses", function(p)
     local steps = params:get("v1_steps")
     if p > steps then
@@ -185,7 +185,7 @@ local function setup_params()
     end
     regen_rhythm(2)
   end)
-  params:add_number("v2_pulses", "v2 rhythm pulses", PULSES_MIN, PULSES_MAX, 16)
+  params:add_number("v2_pulses", "v2 rhythm pulses", PULSES_MIN, PULSES_MAX, 1)
   params:set_action("v2_pulses", function(p)
     local steps = params:get("v2_steps")
     if p > steps then
@@ -404,20 +404,19 @@ local function point(ring, x)
   a:led(ring, (c + 63) % 64 + 1, 15 - (xi % 16))
 end
 
-local function slot_led(i, nlen)
-  return math.floor(i * RING_LEDS / nlen) + 1
-end
-
--- snows-style: every slot dim, current armed slot brighter, phasor cursor.
+-- snows-style cluster: lane sits as a tight group at LEDs 32 + i*2, with
+-- the armed step brighter and the snows triple-LED cursor sweeping the
+-- whole ring around it.
 local function draw_seq_ring(v)
   local n = SEQ_RING[v]
   local len = #voices[v].pitch_lane
   if len == 0 then
     return
   end
-  for i = 0, len - 1 do
-    a:led(n, slot_led(i, len), (i + 1 == voices[v].pitch_idx) and 9 or 1)
+  for i = 1, len do
+    a:led(n, 32 + i * 2, 1)
   end
+  a:led(n, 32 + voices[v].pitch_idx * 2, 9)
   point(n, phasors[v].phase)
 end
 

@@ -1,13 +1,15 @@
--- squircle
+-- squircle: dual midi sequencer for arc
 -- v0.2.0 @icco
--- https://github.com/icco/squircle
 --
--- dual midi sequencer for arc.
--- one phasor per voice; arc 2/4 transposes by scale degree.
+-- one phasor per voice, two midi channels
 --
--- arc 1/3 speed   arc 2/4 transpose   arc key freeze
--- e1 root  e2 scale  e3 lane len   k2/k3 regen
--- hold k1 for alt: k1+e1 vel  k1+e2/3 pulses  k1+k2 panic  k1+k3 regen all
+-- arc 1 / 3 : phasor speed  (v1 / v2)
+-- arc 2 / 4 : transpose     (v1 / v2)
+-- arc key   : freeze speeds
+--
+-- enc1 root   enc2 scale   enc3 lane length
+-- key2 regen pitches    key3 regen rhythms
+-- hold key1 for alt: k1+e1/2/3 vel/pulses    k1+k2 panic    k1+k3 regen all
 
 local musicutil = require("musicutil")
 local er = require("er")

@@ -2,7 +2,7 @@
 
 > dual midi sequencer for arc
 
-Two free-running voices, each with its own phasor and a scale-degree transpose wheel. The phasor advances both a pitch lane and a Euclidean rhythm pattern; the transpose wheel rotates the lane through octaves. Voice 1 lands on MIDI ch 1, voice 2 on ch 2 (configurable in PARAMETERS).
+Two voices, each with one phasor and a scale-degree transpose wheel. The phasor advances both a pitch lane and a Euclidean rhythm; the transpose wheel rotates the lane through octaves.
 
 UI inspired by [snows.lua](https://codeberg.org/tehn/iii-scripts/raw/branch/main/arc/snows.lua) and [ribbons](https://github.com/tehn/ribbons). Designed for [Music Thing 98-duo-midi](https://tomwhitwell.github.io/Workshop_Computer/programs/98-duo-midi/index.html) and [ALM mmMidi](https://busycircuits.com/pages/alm023), but works with any MIDI destination.
 
@@ -10,7 +10,7 @@ UI inspired by [snows.lua](https://codeberg.org/tehn/iii-scripts/raw/branch/main
 
 - [norns](https://monome.org/docs/norns/) (any version with arc support)
 - [arc](https://monome.org/docs/arc/) (4 ring)
-- a MIDI destination (hardware module, synth, or another norns)
+- a MIDI destination
 
 ## install
 
@@ -23,57 +23,49 @@ In maiden:
 ## controls
 
 ```
-arc 1 / 3 : voice phasor speed   (v1 / v2)   -- drives both pitch + rhythm
-arc 2 / 4 : voice pitch offset   (v1 / v2)   -- scale-degree transpose, wraps octaves
-arc key   : freeze (zero both speeds)
+arc 1 / 3 : phasor speed   (v1 / v2, drives pitch + rhythm)
+arc 2 / 4 : transpose      (v1 / v2, scale-degree, wraps octaves)
+arc key   : freeze speeds
 
-enc 1 : root           enc 2 : scale         enc 3 : pitch lane length
-key 2 : regen pitches  key 3 : regen rhythms
+enc 1 root   enc 2 scale   enc 3 lane length
+key 2 regen pitches   key 3 regen rhythms
 
 hold key 1 for alt:
   k1+e1 velocity   k1+e2 v1 pulses   k1+e3 v2 pulses
   k1+k2 panic      k1+k3 regen all
 ```
 
-Each voice has one shared phasor. As its phase advances, crossing a pitch slot moves the armed note in that voice's lane; crossing a rhythm slot evaluates the next Euclidean gate (rising edge → `note_on` of the armed pitch, falling edge → `note_off`). The pitch-offset wheel rotates within the lane and shifts up or down an octave each time it wraps past the lane edge — so a full revolution of the offset ring transposes by exactly one octave.
-
-Arc encoder feel matches snows: the **arc sensitivity** parameter (default `4`) sets how many raw arc deltas are accumulated per emitted step, replicating snows' `arc_res(i, 4)` in software.
+Arc encoder feel matches snows: the **arc sensitivity** param (default `4`) sets raw arc deltas per emitted step, mirroring `arc_res(i, 4)` in software.
 
 ## parameters
 
 - **midi out** — destination MIDI port
-- **arc sensitivity** — raw arc deltas per emitted step (1 = most sensitive, 16 = slowest)
-- **voice 1 / 2 channel** — MIDI channels (default 1 and 2)
-- **velocity** — note-on velocity for both voices (also reachable via k1+e1)
-- **root**, **scale**, **pitch lane length** — drives both pitch lanes
-- **v1 / v2 rhythm steps** and **pulses** — Euclidean pattern per voice (pulses also via k1+e2 / k1+e3)
+- **arc sensitivity** — `1` most sensitive … `16` slowest
+- **voice 1 / 2 channel** — MIDI channels (default 1, 2)
+- **velocity** — note-on velocity (also k1+e1)
+- **root**, **scale**, **pitch lane length** — both lanes
+- **v1 / v2 rhythm steps + pulses** — Euclidean per voice (pulses also k1+e2 / k1+e3)
 
 ## references
 
-These are the resources to read before changing this script — especially anything that touches arc input, encoder feel, or norns key/encoder UX. They are the source of truth for "does this feel like a norns script".
+Read these before changing arc input, encoder feel, or norns key/encoder UX.
 
-### inspiration / reference scripts
+Reference scripts:
 
-- [snows.lua](https://codeberg.org/tehn/iii-scripts/raw/branch/main/arc/snows.lua) — the arc-as-phasors UX, ring-LED point cursor, and `arc_res(i, 4)` sensitivity that this script targets
-- [ribbons (tehn/ribbons)](https://github.com/tehn/ribbons) — the canonical norns implementation of an arc delta accumulator (`SENS = 32`, see `a.delta` in `ribbons.lua`) and the K3-emulates-arc-key + arc-key-as-alt-modifier idioms
+- [snows.lua](https://codeberg.org/tehn/iii-scripts/raw/branch/main/arc/snows.lua) — arc phasors + `arc_res(i, 4)` feel
+- [ribbons](https://github.com/tehn/ribbons) — arc delta accumulator pattern (`a.delta`, `SENS = 32`)
 
-### norns API docs
+Norns API:
 
-- [norns script reference index](https://monome.org/docs/norns/reference/) — start here; links to every module's reference + static API
-- [arc reference](https://monome.org/docs/norns/reference/arc) — note that arc has *no* hardware sensitivity / `arc_res` API surface; sensitivity must be done in software
-- [encoders reference](https://monome.org/docs/norns/reference/encoders) — `norns.enc.sens(n, sens)` and `norns.enc.accel(n, accel)` (norns hardware encoders only — does not affect arc), plus the canonical "fine-tune when holding K1" pattern
-- [paramset reference](https://monome.org/docs/norns/reference/params) — `params:add_*`, `params:set_action`, `params:delta`, groups, separators
-- [midi reference](https://monome.org/docs/norns/reference/midi) — `midi.connect`, `note_on`/`note_off`/`cc`, vports
-- [clock reference](https://monome.org/docs/norns/reference/clock) — `clock.run`, `clock.sleep`, `clock.sync`, `clock.cancel`
-- [musicutil reference](https://monome.org/docs/norns/reference/lib/musicutil) — `SCALES`, `NOTE_NAMES`, `generate_scale_of_length`, `note_num_to_name`
-- [lib/er reference](https://monome.org/docs/norns/reference/lib/er) — Euclidean rhythm generator (`er.gen(pulses, steps)`)
-- [screen API](https://monome.org/docs/norns/api/modules/screen.html) — drawing primitives, font faces, blend modes
+- [reference index](https://monome.org/docs/norns/reference/) and [arc](https://monome.org/docs/norns/reference/arc) — note: arc has no hardware-resolution API
+- [encoders](https://monome.org/docs/norns/reference/encoders), [paramset](https://monome.org/docs/norns/reference/params), [midi](https://monome.org/docs/norns/reference/midi), [clock](https://monome.org/docs/norns/reference/clock), [screen](https://monome.org/docs/norns/api/modules/screen.html)
+- [musicutil](https://monome.org/docs/norns/reference/lib/musicutil), [er](https://monome.org/docs/norns/reference/lib/er)
 
-### norns UX conventions
+UX:
 
-- [play (norns first-time guide)](https://monome.org/docs/norns/play) — establishes K1 = modifier, K2 = back/select, K3 = confirm/forward, E1 = page, E2/E3 = adjust; K1+K2 / K1+K3 / K1+E2 / K1+E3 as standard alt combos. Follow these when adding new norns key/encoder behavior.
-- [norns scripting best practices (lines)](https://llllllll.co/t/norns-scripting-best-practices/23606) — community thread of patterns
-- [norns lua coding style (wiki)](https://github.com/monome/norns/wiki/coding-style-(lua)) — repo-level style guidelines
+- [play](https://monome.org/docs/norns/play) — K1/K2/K3 + E1/E2/E3 conventions, K1+ alt combos
+- [norns scripting best practices](https://llllllll.co/t/norns-scripting-best-practices/23606)
+- [coding style (wiki)](https://github.com/monome/norns/wiki/coding-style-(lua))
 
 ## license
 

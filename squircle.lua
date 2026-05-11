@@ -1,15 +1,18 @@
 -- squircle: dual midi sequencer for arc
 -- v0.3.0 @icco
 --
--- snows-mode: a slowly moving sequencer per voice
+-- snows-mode: a slowly moving sequencer per voice. Each voice has one
+-- lane of N slots; arc 2 / 4 chooses how many slots are pulses
+-- (Euclidean), so as you turn it up dots light up on the matching arc
+-- 1 / 3 cluster and notes fire more often per rotation.
 --
--- arc 1 / 3 : voice phasor speed     (snows-style sequence + cursor)
--- arc 2 / 4 : voice rhythm density   (Euclidean pulses, 0..100%)
+-- arc 1 / 3 : voice phasor speed   (snows cluster: pulse / rest / armed)
+-- arc 2 / 4 : voice density        (Euclidean pulses, 0..100% of lane)
 -- arc key   : freeze speeds
 --
 -- enc1 root   enc2 scale   enc3 velocity
 -- key2 regen pitches   key3 regen rhythms
--- panic, lane length, rhythm steps live in PARAMETERS
+-- panic and per-voice lane length live in PARAMETERS
 
 local musicutil = require("musicutil")
 local er = require("er")
@@ -33,8 +36,8 @@ local PULSE_RING = { 2, 4 }
 local LANE_LEN_MIN = 3
 local LANE_LEN_MAX = 12
 
-local PULSES_MIN = 0
-local PULSES_MAX = 32
+-- Pulses share lane bounds: 0 = silence, lane_len = every slot fires.
+local LANE_LEN_MIN_PULSES = 0
 
 -- ---------------------------------------------------------------------------
 -- State
@@ -49,12 +52,11 @@ local voices = {}
 for v = 1, NUM_VOICES do
   voices[v] = {
     ch = v,
-    pitch_lane = {},
+    pitch_lane = {}, -- length = lane_len, MIDI notes
+    rhythm = {}, -- same length, true = pulse, false = rest
     pitch_idx = 1,
-    rhythm = {},
-    gate_idx = 0,
-    gate_high = false,
     last_note = nil,
+    gate_high = false,
   }
 end
 
@@ -140,16 +142,36 @@ local function setup_params()
   params:add_trigger("panic", "panic (all notes off)")
   params:set_action("panic", panic)
 
-  params:add_group("voices", 7)
+  params:add_group("voices", 9)
   params:add_number("v1_ch", "voice 1 channel", 1, 16, 1)
   params:add_number("v2_ch", "voice 2 channel", 1, 16, 2)
   params:add_number("v1_lane_len", "v1 lane length", LANE_LEN_MIN, LANE_LEN_MAX, 5)
   params:set_action("v1_lane_len", function()
     regen_pitch_lane(1)
+    regen_rhythm(1)
+  end)
+  params:add_number("v1_pulses", "v1 pulses", LANE_LEN_MIN_PULSES, LANE_LEN_MAX, 1)
+  params:set_action("v1_pulses", function(p)
+    local len = params:get("v1_lane_len")
+    if p > len then
+      params:set("v1_pulses", len)
+      return
+    end
+    regen_rhythm(1)
   end)
   params:add_number("v2_lane_len", "v2 lane length", LANE_LEN_MIN, LANE_LEN_MAX, 5)
   params:set_action("v2_lane_len", function()
     regen_pitch_lane(2)
+    regen_rhythm(2)
+  end)
+  params:add_number("v2_pulses", "v2 pulses", LANE_LEN_MIN_PULSES, LANE_LEN_MAX, 1)
+  params:set_action("v2_pulses", function(p)
+    local len = params:get("v2_lane_len")
+    if p > len then
+      params:set("v2_pulses", len)
+      return
+    end
+    regen_rhythm(2)
   end)
   params:add_number("velocity", "velocity", 1, 127, 100)
   params:add_option("root", "root", musicutil.NOTE_NAMES, 1)
@@ -159,40 +181,6 @@ local function setup_params()
   params:add_option("scale", "scale", scale_names, scale_index("Natural Minor"))
   params:set_action("scale", function()
     regen_pitch_lanes()
-  end)
-
-  params:add_group("rhythm", 4)
-  params:add_number("v1_steps", "v1 rhythm steps", 4, PULSES_MAX, 16)
-  params:set_action("v1_steps", function(v)
-    if params:get("v1_pulses") > v then
-      params:set("v1_pulses", v)
-    end
-    regen_rhythm(1)
-  end)
-  params:add_number("v1_pulses", "v1 rhythm pulses", PULSES_MIN, PULSES_MAX, 1)
-  params:set_action("v1_pulses", function(p)
-    local steps = params:get("v1_steps")
-    if p > steps then
-      params:set("v1_pulses", steps)
-      return
-    end
-    regen_rhythm(1)
-  end)
-  params:add_number("v2_steps", "v2 rhythm steps", 4, PULSES_MAX, 16)
-  params:set_action("v2_steps", function(v)
-    if params:get("v2_pulses") > v then
-      params:set("v2_pulses", v)
-    end
-    regen_rhythm(2)
-  end)
-  params:add_number("v2_pulses", "v2 rhythm pulses", PULSES_MIN, PULSES_MAX, 1)
-  params:set_action("v2_pulses", function(p)
-    local steps = params:get("v2_steps")
-    if p > steps then
-      params:set("v2_pulses", steps)
-      return
-    end
-    regen_rhythm(2)
   end)
 
   params:bang()
@@ -224,23 +212,17 @@ function regen_pitch_lanes()
 end
 
 function regen_rhythm(v)
-  local steps = params:get("v" .. v .. "_steps")
-  local pulses = params:get("v" .. v .. "_pulses")
+  local len = params:get("v" .. v .. "_lane_len")
+  local pulses = math.min(params:get("v" .. v .. "_pulses"), len)
+  local rhythm = {}
   if pulses <= 0 then
-    -- All-rests; phasor still walks so any held note closes.
-    local rhythm = {}
-    for i = 1, steps do
+    for i = 1, len do
       rhythm[i] = false
     end
-    voices[v].rhythm = rhythm
   else
-    voices[v].rhythm = er.gen(pulses, steps)
+    rhythm = er.gen(pulses, len)
   end
-  if #voices[v].rhythm > 0 then
-    voices[v].gate_idx = voices[v].gate_idx % #voices[v].rhythm
-  else
-    voices[v].gate_idx = 0
-  end
+  voices[v].rhythm = rhythm
   dirty = true
   screen_dirty = true
 end
@@ -320,58 +302,38 @@ local function voice_note(v)
   return lane[voices[v].pitch_idx]
 end
 
--- Rising edge: note_on armed pitch. Falling edge: note_off last.
-local function apply_gate(v, gate_on)
+-- One slot crossing: kill any held note, then fire a new note iff the
+-- newly armed slot is a pulse. Walked one slot at a time so high speed
+-- still emits every step.
+local function step_voice(v, prev_phase, cur_phase, dir)
   local voice = voices[v]
-  if gate_on and not voice.gate_high then
-    local note = voice_note(v)
-    if note and m then
-      m:note_on(note, params:get("velocity"), params:get("v" .. v .. "_ch"))
-      voice.last_note = note
+  local lane = voice.pitch_lane
+  local len = #lane
+  if len == 0 then
+    return
+  end
+  local slot_w = PHASE_MAX / len
+  local crossings =
+    steps_between(math.floor(prev_phase / slot_w), math.floor(cur_phase / slot_w), len, dir)
+  for _ = 1, crossings do
+    if dir > 0 then
+      voice.pitch_idx = (voice.pitch_idx % len) + 1
+    else
+      voice.pitch_idx = ((voice.pitch_idx - 2) % len) + 1
     end
-    voice.gate_high = true
-  elseif not gate_on and voice.gate_high then
     if voice.last_note and m then
       m:note_off(voice.last_note, 0, params:get("v" .. v .. "_ch"))
     end
     voice.last_note = nil
     voice.gate_high = false
-  end
-end
-
-local function handle_pitch_ring(v, prev_phase, cur_phase, dir)
-  local lane = voices[v].pitch_lane
-  if #lane == 0 then
-    return
-  end
-  local slot_w = PHASE_MAX / #lane
-  local crossings =
-    steps_between(math.floor(prev_phase / slot_w), math.floor(cur_phase / slot_w), #lane, dir)
-  for _ = 1, crossings do
-    if dir > 0 then
-      voices[v].pitch_idx = (voices[v].pitch_idx % #lane) + 1
-    else
-      voices[v].pitch_idx = ((voices[v].pitch_idx - 2) % #lane) + 1
+    if voice.rhythm[voice.pitch_idx] and m then
+      local note = lane[voice.pitch_idx]
+      if note then
+        m:note_on(note, params:get("velocity"), params:get("v" .. v .. "_ch"))
+        voice.last_note = note
+        voice.gate_high = true
+      end
     end
-  end
-end
-
--- Walk one slot at a time so balanced pairs still fire at high speed.
-local function handle_rhythm_ring(v, prev_phase, cur_phase, dir)
-  local pat = voices[v].rhythm
-  if #pat == 0 then
-    return
-  end
-  local slot_w = PHASE_MAX / #pat
-  local crossings =
-    steps_between(math.floor(prev_phase / slot_w), math.floor(cur_phase / slot_w), #pat, dir)
-  for _ = 1, crossings do
-    if dir > 0 then
-      voices[v].gate_idx = (voices[v].gate_idx % #pat) + 1
-    else
-      voices[v].gate_idx = ((voices[v].gate_idx - 2) % #pat) + 1
-    end
-    apply_gate(v, pat[voices[v].gate_idx])
   end
 end
 
@@ -382,9 +344,7 @@ local function tick_step()
       local prev = p.phase
       local cur = (prev + p.speed) % PHASE_MAX
       p.phase = cur
-      local dir = p.speed > 0 and 1 or -1
-      handle_pitch_ring(v, prev, cur, dir)
-      handle_rhythm_ring(v, prev, cur, dir)
+      step_voice(v, prev, cur, p.speed > 0 and 1 or -1)
       dirty = true
       screen_dirty = true
     end
@@ -404,31 +364,34 @@ local function point(ring, x)
   a:led(ring, (c + 63) % 64 + 1, 15 - (xi % 16))
 end
 
--- snows-style cluster: lane sits as a tight group at LEDs 32 + i*2, with
--- the armed step brighter and the snows triple-LED cursor sweeping the
--- whole ring around it.
+-- snows-style cluster: rest = level 1, pulse = level 5, armed slot = 12.
+-- The snows triple-LED cursor sweeps the whole ring on top.
 local function draw_seq_ring(v)
   local n = SEQ_RING[v]
-  local len = #voices[v].pitch_lane
+  local voice = voices[v]
+  local len = #voice.pitch_lane
   if len == 0 then
     return
   end
   for i = 1, len do
-    a:led(n, 32 + i * 2, 1)
+    local level = voice.rhythm[i] and 5 or 1
+    if i == voice.pitch_idx then
+      level = 12
+    end
+    a:led(n, 32 + i * 2, level)
   end
-  a:led(n, 32 + voices[v].pitch_idx * 2, 9)
   point(n, phasors[v].phase)
 end
 
--- Hard on/off fill 0..100% (silent at 0, full ring at pulses == steps).
+-- Hard on/off fill 0..100% (silent at 0, full ring at pulses == lane_len).
 local function draw_pulse_ring(v)
   local n = PULSE_RING[v]
-  local pulses = params:get("v" .. v .. "_pulses")
-  local steps = params:get("v" .. v .. "_steps")
-  if steps <= 0 then
+  local len = params:get("v" .. v .. "_lane_len")
+  local pulses = math.min(params:get("v" .. v .. "_pulses"), len)
+  if len <= 0 then
     return
   end
-  local fill = math.floor(pulses / steps * RING_LEDS + 0.5)
+  local fill = math.floor(pulses / len * RING_LEDS + 0.5)
   for i = 1, fill do
     a:led(n, i, 15)
   end
@@ -504,9 +467,9 @@ local function draw_voice_row(v, y)
   screen.move(72, y)
   screen.text("s:" .. speed_glyph(phasors[v].speed))
   screen.move(102, y)
-  local pulses = params:get("v" .. v .. "_pulses")
-  local steps = params:get("v" .. v .. "_steps")
-  screen.text("p:" .. pulses .. "/" .. steps)
+  local len = params:get("v" .. v .. "_lane_len")
+  local pulses = math.min(params:get("v" .. v .. "_pulses"), len)
+  screen.text("p:" .. pulses .. "/" .. len)
 end
 
 function redraw()

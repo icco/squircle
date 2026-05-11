@@ -443,3 +443,155 @@ local function tick_step()
     end
   end
 end
+
+-- ---------------------------------------------------------------------------
+-- Norns hardware callbacks
+-- ---------------------------------------------------------------------------
+
+local K3_LONG_HOLD = 0.5 -- seconds to distinguish long-press from short
+local k3_down_at = nil -- timestamp when K3 was pressed (nil if not held)
+
+function key(n, z)
+  if n == 2 and z == 1 then
+    regen_pitch_lanes()
+  elseif n == 3 then
+    if z == 1 then
+      k3_down_at = util.time()
+    elseif k3_down_at then
+      local held = util.time() - k3_down_at
+      k3_down_at = nil
+      if held > K3_LONG_HOLD then
+        panic()
+      else
+        regen_rhythms()
+      end
+    end
+  end
+  screen_dirty = true
+end
+
+function enc(n, d)
+  if n == 1 then
+    params:delta("root", d)
+  elseif n == 2 then
+    params:delta("scale", d)
+  elseif n == 3 then
+    params:delta("lane_len", d)
+  end
+  screen_dirty = true
+end
+
+-- Speed glyph for a ring: shows direction and rough magnitude.
+local function speed_glyph(speed)
+  if speed == 0 then
+    return "."
+  end
+  local mag = math.min(math.abs(speed), SPEED_CLAMP)
+  local bars = math.ceil(mag / (SPEED_CLAMP / 3))
+  local arrow = (speed > 0) and ">" or "<"
+  return string.rep(arrow, bars)
+end
+
+-- Render one voice row at vertical offset y. Shows the channel, the
+-- currently armed pitch name, gate state, and the two ring speeds.
+local function draw_voice_row(v, y)
+  local voice = voices[v]
+  local ch = params:get("v" .. v .. "_ch")
+  local note = voice.pitch_lane[voice.pitch_idx]
+  local note_str = note and musicutil.note_num_to_name(note, true) or "--"
+  local gate_str = voice.gate_high and "*" or "-"
+
+  screen.level(15)
+  screen.move(2, y)
+  screen.text("v" .. v .. " ch" .. ch)
+
+  screen.level(10)
+  screen.move(36, y)
+  screen.text(note_str)
+
+  screen.level(voice.gate_high and 15 or 4)
+  screen.move(64, y)
+  screen.text(gate_str)
+
+  -- Two ring speed glyphs: pitch ring then rhythm ring
+  screen.level(6)
+  screen.move(76, y)
+  screen.text("p:" .. speed_glyph(rings[PITCH_RING[v]].speed))
+  screen.move(102, y)
+  screen.text("r:" .. speed_glyph(rings[RHYTHM_RING[v]].speed))
+end
+
+function redraw()
+  screen.clear()
+  screen.font_face(1)
+  screen.font_size(8)
+
+  screen.level(6)
+  screen.move(2, 10)
+  screen.text("squircle")
+  screen.level(10)
+  screen.move(60, 10)
+  screen.text(musicutil.NOTE_NAMES[params:get("root")] .. " " .. scale_names[params:get("scale")])
+
+  draw_voice_row(1, 30)
+  draw_voice_row(2, 44)
+
+  screen.level(3)
+  screen.move(2, 62)
+  screen.text("k2 pitches  k3 rhythms  hold k3 panic")
+
+  screen.update()
+end
+
+-- ---------------------------------------------------------------------------
+-- Lifecycle
+-- ---------------------------------------------------------------------------
+
+local tick_clock_id
+local screen_clock_id
+
+-- Tick loop: drives the sequencer at TICK_HZ. After each tick, if any
+-- arc state changed, redraw and refresh the device.
+local function tick_loop()
+  while true do
+    clock.sleep(1 / TICK_HZ)
+    tick_step()
+    if dirty then
+      draw_arc()
+      if a then
+        a:refresh()
+      end
+      dirty = false
+    end
+  end
+end
+
+-- Screen loop: ~15 fps, redraws only when something marked the screen
+-- dirty. Cheap when idle.
+local function screen_loop()
+  while true do
+    clock.sleep(1 / 15)
+    if screen_dirty then
+      redraw()
+      screen_dirty = false
+    end
+  end
+end
+
+function init()
+  setup_params()
+  refresh_midi_target()
+  setup_arc()
+
+  regen_pitch_lanes()
+  regen_rhythms()
+
+  tick_clock_id = clock.run(tick_loop)
+  screen_clock_id = clock.run(screen_loop)
+
+  redraw()
+  draw_arc()
+  if a then
+    a:refresh()
+  end
+end

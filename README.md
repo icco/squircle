@@ -23,27 +23,27 @@ In maiden:
 ## controls
 
 ```
-arc 1 / 3 : voice phasor speed     (snows-style sequence + cursor)
-arc 2 / 4 : voice rhythm density   (Euclidean pulses, 0..100%)
+arc 1 / 3 : voice phasor speed   (snows cluster: pulse / rest / armed)
+arc 2 / 4 : voice density        (Euclidean pulses, 0..100% of lane)
 arc key   : freeze speeds
 
-enc 1 root   enc 2 scale   enc 3 velocity
+enc 1 velocity   enc 2 v1 octave   enc 3 v2 octave
 key 2 regen pitches   key 3 regen rhythms
 ```
 
-Defaults to one note per phasor rotation (snows-mode); turn arc 2 / 4 up for more notes per rotation. K1 is reserved by norns (quick tap exits to menu), so it isn't bound. Panic, per-voice lane length, MIDI channels, and rhythm step count live in PARAMETERS. Arc feel matches snows via the **arc sensitivity** param (default `4`, mirrors `arc_res(i, 4)` in software).
+Each voice has its own root, scale, octave, lane length (3..32), and pulse count. Defaults to one note per rotation (snows-mode); turn arc 2 / 4 up for more notes per rotation. K1 is reserved by norns, so it isn't bound. Per-voice root / scale / lane length / channel and panic live in PARAMETERS. Arc feel matches snows via the **arc sensitivity** param (default `4`, mirrors `arc_res(i, 4)` in software).
 
 ## parameters
 
 - **midi out** — destination MIDI port
 - **arc sensitivity** — `1` most sensitive … `16` slowest
-- **panic** — trigger; sends all-notes-off on every voice channel
-- **voice 1 / 2 channel** — MIDI channels (default 1, 2)
-- **v1 / v2 lane length** — pitch slots per voice (3..12)
-- **velocity** — note-on velocity (also e3)
-- **root**, **scale** — both lanes (e1 / e2)
-- **v1 / v2 rhythm steps** — Euclidean step count
-- **v1 / v2 rhythm pulses** — Euclidean pulse count (also arc 2 / 4)
+- **panic** — trigger; all-notes-off on every voice channel
+- **velocity** — note-on velocity (also e1)
+- per voice (`voice 1` / `voice 2` groups):
+  - **channel** — MIDI channel
+  - **root** / **scale** / **octave** — lane key (octave also e2 / e3)
+  - **lane length** — pitch slots (3..32)
+  - **pulses** — Euclidean pulse count (also arc 2 / 4)
 
 ## references
 

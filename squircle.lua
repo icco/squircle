@@ -1,18 +1,18 @@
 -- squircle: dual midi sequencer for arc
 -- v0.3.0 @icco
 --
--- snows-mode: a slowly moving sequencer per voice. Each voice has one
--- lane of N slots; arc 2 / 4 chooses how many slots are pulses
--- (Euclidean), so as you turn it up dots light up on the matching arc
--- 1 / 3 cluster and notes fire more often per rotation.
+-- snows-mode: a slowly moving sequencer per voice. Each voice has its
+-- own root, scale, octave, and lane of N slots (3..32). Arc 2 / 4
+-- chooses how many slots are pulses (Euclidean), so dots light up on
+-- the matching arc 1 / 3 cluster as you turn it up.
 --
 -- arc 1 / 3 : voice phasor speed   (snows cluster: pulse / rest / armed)
 -- arc 2 / 4 : voice density        (Euclidean pulses, 0..100% of lane)
 -- arc key   : freeze speeds
 --
--- enc1 root   enc2 scale   enc3 velocity
+-- enc1 velocity   enc2 v1 octave   enc3 v2 octave
 -- key2 regen pitches   key3 regen rhythms
--- panic and per-voice lane length live in PARAMETERS
+-- per-voice root / scale / lane length / panic live in PARAMETERS
 
 local musicutil = require("musicutil")
 local er = require("er")
@@ -34,10 +34,13 @@ local SEQ_RING = { 1, 3 }
 local PULSE_RING = { 2, 4 }
 
 local LANE_LEN_MIN = 3
-local LANE_LEN_MAX = 16 -- snows cluster fits in 1..64 at LED 32 + i*2
+local LANE_LEN_MAX = 32
 
 -- Pulses share lane bounds: 0 = silence, lane_len = every slot fires.
 local LANE_LEN_MIN_PULSES = 0
+
+local OCTAVE_MIN = 0
+local OCTAVE_MAX = 8
 
 -- ---------------------------------------------------------------------------
 -- State
@@ -142,46 +145,39 @@ local function setup_params()
   params:add_trigger("panic", "panic (all notes off)")
   params:set_action("panic", panic)
 
-  params:add_group("voices", 9)
-  params:add_number("v1_ch", "voice 1 channel", 1, 16, 1)
-  params:add_number("v2_ch", "voice 2 channel", 1, 16, 2)
-  params:add_number("v1_lane_len", "v1 lane length", LANE_LEN_MIN, LANE_LEN_MAX, LANE_LEN_MAX)
-  params:set_action("v1_lane_len", function()
-    regen_pitch_lane(1)
-    regen_rhythm(1)
-  end)
-  params:add_number("v1_pulses", "v1 pulses", LANE_LEN_MIN_PULSES, LANE_LEN_MAX, 1)
-  params:set_action("v1_pulses", function(p)
-    local len = params:get("v1_lane_len")
-    if p > len then
-      params:set("v1_pulses", len)
-      return
-    end
-    regen_rhythm(1)
-  end)
-  params:add_number("v2_lane_len", "v2 lane length", LANE_LEN_MIN, LANE_LEN_MAX, LANE_LEN_MAX)
-  params:set_action("v2_lane_len", function()
-    regen_pitch_lane(2)
-    regen_rhythm(2)
-  end)
-  params:add_number("v2_pulses", "v2 pulses", LANE_LEN_MIN_PULSES, LANE_LEN_MAX, 1)
-  params:set_action("v2_pulses", function(p)
-    local len = params:get("v2_lane_len")
-    if p > len then
-      params:set("v2_pulses", len)
-      return
-    end
-    regen_rhythm(2)
-  end)
   params:add_number("velocity", "velocity", 1, 127, 100)
-  params:add_option("root", "root", musicutil.NOTE_NAMES, 1)
-  params:set_action("root", function()
-    regen_pitch_lanes()
-  end)
-  params:add_option("scale", "scale", scale_names, scale_index("Natural Minor"))
-  params:set_action("scale", function()
-    regen_pitch_lanes()
-  end)
+
+  for v = 1, NUM_VOICES do
+    local default_octave = (v == 1) and 5 or 4
+    params:add_group("voice " .. v, 6)
+    params:add_number("v" .. v .. "_ch", "channel", 1, 16, v)
+    params:add_option("v" .. v .. "_root", "root", musicutil.NOTE_NAMES, 1)
+    params:set_action("v" .. v .. "_root", function()
+      regen_pitch_lane(v)
+    end)
+    params:add_option("v" .. v .. "_scale", "scale", scale_names, scale_index("Natural Minor"))
+    params:set_action("v" .. v .. "_scale", function()
+      regen_pitch_lane(v)
+    end)
+    params:add_number("v" .. v .. "_octave", "octave", OCTAVE_MIN, OCTAVE_MAX, default_octave)
+    params:set_action("v" .. v .. "_octave", function()
+      regen_pitch_lane(v)
+    end)
+    params:add_number("v" .. v .. "_lane_len", "lane length", LANE_LEN_MIN, LANE_LEN_MAX, 16)
+    params:set_action("v" .. v .. "_lane_len", function()
+      regen_pitch_lane(v)
+      regen_rhythm(v)
+    end)
+    params:add_number("v" .. v .. "_pulses", "pulses", LANE_LEN_MIN_PULSES, LANE_LEN_MAX, 1)
+    params:set_action("v" .. v .. "_pulses", function(p)
+      local len = params:get("v" .. v .. "_lane_len")
+      if p > len then
+        params:set("v" .. v .. "_pulses", len)
+        return
+      end
+      regen_rhythm(v)
+    end)
+  end
 
   params:bang()
 end
@@ -190,12 +186,11 @@ end
 -- Pattern generation
 -- ---------------------------------------------------------------------------
 
--- Distinct registers so a shared root yields two octaves.
-local VOICE_BASE = { 60, 48 }
-
 function regen_pitch_lane(v)
-  local root = (params:get("root") - 1) + VOICE_BASE[v]
-  local scale_name = scale_names[params:get("scale")]
+  local root_idx = params:get("v" .. v .. "_root")
+  local octave = params:get("v" .. v .. "_octave")
+  local root = (root_idx - 1) + octave * 12
+  local scale_name = scale_names[params:get("v" .. v .. "_scale")]
   local len = params:get("v" .. v .. "_lane_len")
   voices[v].pitch_lane = musicutil.generate_scale_of_length(root, scale_name, len)
   if voices[v].pitch_idx > #voices[v].pitch_lane then
@@ -365,7 +360,9 @@ local function point(ring, x)
 end
 
 -- snows-style cluster: rest = level 1, pulse = level 5, armed slot = 12.
--- The snows triple-LED cursor sweeps the whole ring on top.
+-- Cluster anchors at LED 32, with adaptive spacing so up to 32 slots
+-- still fit on the 64-LED ring (spacing 2 like snows for short lanes,
+-- collapsing to 1 once the lane gets long enough to need it).
 local function draw_seq_ring(v)
   local n = SEQ_RING[v]
   local voice = voices[v]
@@ -373,12 +370,14 @@ local function draw_seq_ring(v)
   if len == 0 then
     return
   end
+  local spacing = math.max(1, math.min(2, math.floor(RING_LEDS / 2 / len)))
   for i = 1, len do
+    local pos = ((32 + i * spacing - 1) % RING_LEDS) + 1
     local level = voice.rhythm[i] and 5 or 1
     if i == voice.pitch_idx then
       level = 12
     end
-    a:led(n, 32 + i * 2, level)
+    a:led(n, pos, level)
   end
   point(n, phasors[v].phase)
 end
@@ -427,11 +426,11 @@ end
 
 function enc(n, d)
   if n == 1 then
-    params:delta("root", d)
-  elseif n == 2 then
-    params:delta("scale", d)
-  elseif n == 3 then
     params:delta("velocity", d)
+  elseif n == 2 then
+    params:delta("v1_octave", d)
+  elseif n == 3 then
+    params:delta("v2_octave", d)
   end
   screen_dirty = true
 end
@@ -445,31 +444,45 @@ local function speed_glyph(speed)
   return string.rep((speed > 0) and ">" or "<", bars)
 end
 
+local function scale_short(name)
+  return string.upper(string.sub(name, 1, 3))
+end
+
 local function draw_voice_row(v, y)
   local voice = voices[v]
   local note = voice_note(v)
   local note_str = note and musicutil.note_num_to_name(note, true) or "--"
   local gate_str = voice.gate_high and "*" or "-"
+  local root_idx = params:get("v" .. v .. "_root")
+  local octave = params:get("v" .. v .. "_octave")
+  local scale_str = scale_short(scale_names[params:get("v" .. v .. "_scale")])
+  local key_str = musicutil.NOTE_NAMES[root_idx] .. scale_str .. octave
+  local len = params:get("v" .. v .. "_lane_len")
+  local pulses = math.min(params:get("v" .. v .. "_pulses"), len)
 
   screen.level(15)
   screen.move(2, y)
-  screen.text("v" .. v .. " ch" .. params:get("v" .. v .. "_ch"))
+  screen.text("v" .. v)
+
+  screen.level(8)
+  screen.move(15, y)
+  screen.text(key_str)
 
   screen.level(10)
-  screen.move(36, y)
+  screen.move(54, y)
   screen.text(note_str)
 
   screen.level(voice.gate_high and 15 or 4)
-  screen.move(64, y)
+  screen.move(78, y)
   screen.text(gate_str)
 
   screen.level(6)
-  screen.move(72, y)
-  screen.text("s:" .. speed_glyph(phasors[v].speed))
-  screen.move(102, y)
-  local len = params:get("v" .. v .. "_lane_len")
-  local pulses = math.min(params:get("v" .. v .. "_pulses"), len)
-  screen.text("p:" .. pulses .. "/" .. len)
+  screen.move(86, y)
+  screen.text(speed_glyph(phasors[v].speed))
+
+  screen.level(6)
+  screen.move(108, y)
+  screen.text(pulses .. "/" .. len)
 end
 
 function redraw()
@@ -480,16 +493,16 @@ function redraw()
   screen.level(6)
   screen.move(2, 10)
   screen.text("squircle")
-  screen.level(10)
-  screen.move(60, 10)
-  screen.text(musicutil.NOTE_NAMES[params:get("root")] .. " " .. scale_names[params:get("scale")])
+  screen.level(4)
+  screen.move(126, 10)
+  screen.text_right("vel " .. params:get("velocity"))
 
-  draw_voice_row(1, 30)
+  draw_voice_row(1, 28)
   draw_voice_row(2, 44)
 
   screen.level(3)
   screen.move(2, 62)
-  screen.text("arc 2/4 density   k2/3 regen")
+  screen.text("e1 vel  e2/3 oct  k2/3 regen")
 
   screen.update()
 end

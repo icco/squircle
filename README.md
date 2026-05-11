@@ -41,10 +41,6 @@ Crossing a step boundary on a pitch ring advances the armed note in that voice's
 - **root**, **scale**, **pitch lane length** — drives both pitch lanes
 - **v1 / v2 rhythm steps** and **pulses** — Euclidean pattern per voice
 
-## hardware notes
-
-Both [mmMidi](https://busycircuits.com/pages/alm023) and [98-duo-midi](https://tomwhitwell.github.io/Workshop_Computer/programs/98-duo-midi/index.html) end up with two independent V/oct + gate pairs from squircle's two voices. mmMidi routes by MIDI channel; 98-duo-midi receives on all channels and allocates by nearest pitch, which lands cleanly because the two voices default to different octaves.
-
 ## license
 
 [GPL-3.0](https://github.com/icco/squircle/blob/main/LICENSE)

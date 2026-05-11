@@ -48,6 +48,33 @@ Arc encoder feel matches snows: the **arc sensitivity** parameter (default `4`) 
 - **root**, **scale**, **pitch lane length** — drives both pitch lanes
 - **v1 / v2 rhythm steps** and **pulses** — Euclidean pattern per voice (pulses also via k1+e2 / k1+e3)
 
+## references
+
+These are the resources to read before changing this script — especially anything that touches arc input, encoder feel, or norns key/encoder UX. They are the source of truth for "does this feel like a norns script".
+
+### inspiration / reference scripts
+
+- [snows.lua](https://codeberg.org/tehn/iii-scripts/raw/branch/main/arc/snows.lua) — the arc-as-phasors UX, ring-LED point cursor, and `arc_res(i, 4)` sensitivity that this script targets
+- [ribbons (tehn/ribbons)](https://github.com/tehn/ribbons) — the canonical norns implementation of an arc delta accumulator (`SENS = 32`, see `a.delta` in `ribbons.lua`) and the K3-emulates-arc-key + arc-key-as-alt-modifier idioms
+
+### norns API docs
+
+- [norns script reference index](https://monome.org/docs/norns/reference/) — start here; links to every module's reference + static API
+- [arc reference](https://monome.org/docs/norns/reference/arc) — note that arc has *no* hardware sensitivity / `arc_res` API surface; sensitivity must be done in software
+- [encoders reference](https://monome.org/docs/norns/reference/encoders) — `norns.enc.sens(n, sens)` and `norns.enc.accel(n, accel)` (norns hardware encoders only — does not affect arc), plus the canonical "fine-tune when holding K1" pattern
+- [paramset reference](https://monome.org/docs/norns/reference/params) — `params:add_*`, `params:set_action`, `params:delta`, groups, separators
+- [midi reference](https://monome.org/docs/norns/reference/midi) — `midi.connect`, `note_on`/`note_off`/`cc`, vports
+- [clock reference](https://monome.org/docs/norns/reference/clock) — `clock.run`, `clock.sleep`, `clock.sync`, `clock.cancel`
+- [musicutil reference](https://monome.org/docs/norns/reference/lib/musicutil) — `SCALES`, `NOTE_NAMES`, `generate_scale_of_length`, `note_num_to_name`
+- [lib/er reference](https://monome.org/docs/norns/reference/lib/er) — Euclidean rhythm generator (`er.gen(pulses, steps)`)
+- [screen API](https://monome.org/docs/norns/api/modules/screen.html) — drawing primitives, font faces, blend modes
+
+### norns UX conventions
+
+- [play (norns first-time guide)](https://monome.org/docs/norns/play) — establishes K1 = modifier, K2 = back/select, K3 = confirm/forward, E1 = page, E2/E3 = adjust; K1+K2 / K1+K3 / K1+E2 / K1+E3 as standard alt combos. Follow these when adding new norns key/encoder behavior.
+- [norns scripting best practices (lines)](https://llllllll.co/t/norns-scripting-best-practices/23606) — community thread of patterns
+- [norns lua coding style (wiki)](https://github.com/monome/norns/wiki/coding-style-(lua)) — repo-level style guidelines
+
 ## license
 
 [GPL-3.0](https://github.com/icco/squircle/blob/main/LICENSE)

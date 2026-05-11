@@ -23,15 +23,15 @@ In maiden:
 ## controls
 
 ```
-arc 1 / 3 : phasor speed   (v1 / v2, drives pitch + rhythm)
-arc 2 / 4 : transpose      (v1 / v2, scale-degree, wraps octaves)
+arc 1 / 3 : phasor speed    (v1 / v2, drives pitch + rhythm)
+arc 2 / 4 : rhythm pulses   (v1 / v2, Euclidean pulse count)
 arc key   : freeze speeds
 
-enc 1 root   enc 2 scale   enc 3 lane length
+enc 1 root   enc 2 v1 transpose   enc 3 v2 transpose
 key 2 regen pitches   key 3 regen rhythms
 ```
 
-K1 is reserved by norns (a quick tap exits to the system menu), so this script doesn't bind it. Panic, velocity, MIDI channels, and rhythm pulses live in the PARAMETERS menu.
+Per-voice transpose is in scale degrees and wraps an octave per `lane_len` steps, so it stays diatonic. K1 is reserved by norns (a quick tap exits to the system menu), so this script doesn't bind it. Panic, scale, lane length, MIDI channels, and rhythm steps live in the PARAMETERS menu.
 
 Arc encoder feel matches snows: the **arc sensitivity** param (default `4`) sets raw arc deltas per emitted step, mirroring `arc_res(i, 4)` in software.
 
@@ -41,9 +41,10 @@ Arc encoder feel matches snows: the **arc sensitivity** param (default `4`) sets
 - **arc sensitivity** — `1` most sensitive … `16` slowest
 - **panic** — trigger; sends all-notes-off on every voice channel
 - **voice 1 / 2 channel** — MIDI channels (default 1, 2)
+- **v1 / v2 transpose** — scale-degree transpose (also enc 2 / 3)
 - **velocity** — note-on velocity
 - **root**, **scale**, **pitch lane length** — both lanes
-- **v1 / v2 rhythm steps + pulses** — Euclidean per voice
+- **v1 / v2 rhythm steps + pulses** — Euclidean per voice (pulses also arc 2 / 4)
 
 ## references
 

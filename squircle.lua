@@ -3,13 +3,13 @@
 --
 -- one phasor per voice, two midi channels
 --
--- arc 1 / 3 : phasor speed  (v1 / v2)
--- arc 2 / 4 : transpose     (v1 / v2)
+-- arc 1 / 3 : phasor speed     (v1 / v2)
+-- arc 2 / 4 : rhythm pulses    (v1 / v2)
 -- arc key   : freeze speeds
 --
--- enc1 root   enc2 scale   enc3 lane length
+-- enc1 root   enc2 v1 transpose   enc3 v2 transpose
 -- key2 regen pitches   key3 regen rhythms
--- panic and other params live in PARAMETERS
+-- panic, scale, lane length, channels live in PARAMETERS
 
 local musicutil = require("musicutil")
 local er = require("er")
@@ -26,9 +26,9 @@ local SPEED_CLAMP = 32
 local NUM_VOICES = 2
 local NUM_RINGS = 4
 
--- ring layout: voice v owns rings (v*2 - 1) speed and (v*2) offset
-local SPEED_RING = { 1, 3 }
-local OFFSET_RING = { 2, 4 }
+-- ring layout: voice v owns rings (v*2 - 1) pitch and (v*2) rhythm
+local PITCH_RING = { 1, 3 }
+local RHYTHM_RING = { 2, 4 }
 
 -- ---------------------------------------------------------------------------
 -- State
@@ -136,9 +136,21 @@ local function setup_params()
   params:add_trigger("panic", "panic (all notes off)")
   params:set_action("panic", panic)
 
-  params:add_group("voices", 6)
+  params:add_group("voices", 8)
   params:add_number("v1_ch", "voice 1 channel", 1, 16, 1)
   params:add_number("v2_ch", "voice 2 channel", 1, 16, 2)
+  params:add_number("v1_transpose", "v1 transpose", -24, 24, 0)
+  params:set_action("v1_transpose", function(x)
+    voices[1].offset = x
+    dirty = true
+    screen_dirty = true
+  end)
+  params:add_number("v2_transpose", "v2 transpose", -24, 24, 0)
+  params:set_action("v2_transpose", function(x)
+    voices[2].offset = x
+    dirty = true
+    screen_dirty = true
+  end)
   params:add_number("velocity", "velocity", 1, 127, 100)
   params:add_option("root", "root", musicutil.NOTE_NAMES, 1)
   params:set_action("root", function()
@@ -247,7 +259,7 @@ local function on_arc_delta(n, d)
   if n % 2 == 1 then
     phasors[v].speed = util.clamp(phasors[v].speed + val, -SPEED_CLAMP, SPEED_CLAMP)
   else
-    voices[v].offset = voices[v].offset + val
+    params:delta("v" .. v .. "_pulses", val)
   end
   dirty = true
   screen_dirty = true
@@ -388,7 +400,7 @@ local function slot_led(i, nlen)
 end
 
 local function draw_pitch_ring(v)
-  local n = SPEED_RING[v]
+  local n = PITCH_RING[v]
   local lane = voices[v].pitch_lane
   local nlen = #lane
   if nlen == 0 then
@@ -400,21 +412,21 @@ local function draw_pitch_ring(v)
   point(n, phasors[v].phase)
 end
 
--- Offset ring: dim slot for each scale degree, bright marker at the
--- current offset within the octave. Mirrors the pitch ring's layout so
--- the two rings read as a pair: ring 1/3 = where the playhead is,
--- ring 2/4 = how far you've transposed.
-local function draw_offset_ring(v)
-  local n = OFFSET_RING[v]
-  local nlen = #voices[v].pitch_lane
-  if nlen == 0 then
+-- Rhythm ring: dim slot for empty step, brighter for a Euclidean pulse,
+-- plus the same shared phasor cursor. No gate-state brightness toggle
+-- (which previously caused the active slot to flicker bright/dim) and
+-- no extra marker overlap.
+local function draw_rhythm_ring(v)
+  local n = RHYTHM_RING[v]
+  local pat = voices[v].rhythm
+  local plen = #pat
+  if plen == 0 then
     return
   end
-  for i = 0, nlen - 1 do
-    a:led(n, slot_led(i, nlen), 2)
+  for i = 0, plen - 1 do
+    a:led(n, slot_led(i, plen), pat[i + 1] and 6 or 2)
   end
-  local within_octave = voices[v].offset % nlen
-  a:led(n, slot_led(within_octave, nlen), 15)
+  point(n, phasors[v].phase)
 end
 
 local function draw_arc()
@@ -424,7 +436,7 @@ local function draw_arc()
   a:all(0)
   for v = 1, NUM_VOICES do
     draw_pitch_ring(v)
-    draw_offset_ring(v)
+    draw_rhythm_ring(v)
   end
 end
 
@@ -450,9 +462,9 @@ function enc(n, d)
   if n == 1 then
     params:delta("root", d)
   elseif n == 2 then
-    params:delta("scale", d)
+    params:delta("v1_transpose", d)
   elseif n == 3 then
-    params:delta("lane_len", d)
+    params:delta("v2_transpose", d)
   end
   screen_dirty = true
 end
@@ -489,7 +501,7 @@ local function draw_voice_row(v, y)
   screen.text("s:" .. speed_glyph(phasors[v].speed))
   screen.move(98, y)
   local off = voice.offset
-  local off_str = (off >= 0) and ("o:+" .. off) or ("o:" .. off)
+  local off_str = (off >= 0) and ("t:+" .. off) or ("t:" .. off)
   screen.text(off_str)
 end
 
@@ -510,7 +522,7 @@ function redraw()
 
   screen.level(3)
   screen.move(2, 62)
-  screen.text("k2 regen pitch   k3 regen rhythm")
+  screen.text("e1 root  e2/3 transpose  k2/3 regen")
 
   screen.update()
 end

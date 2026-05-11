@@ -1,22 +1,20 @@
 -- squircle: dual midi sequencer for arc
--- v0.2.0 @icco
+-- v0.3.0 @icco
 --
--- one phasor per voice, two midi channels
+-- snows-mode slow sequencer; per-voice key, lane (3..32), Euclidean density
 --
--- arc 1 / 3 : phasor speed  (v1 / v2)
--- arc 2 / 4 : transpose     (v1 / v2)
+-- arc 1 / 3 : voice phasor speed   (snows cluster: pulse / rest / armed)
+-- arc 2 / 4 : voice density        (Euclidean pulses, 0..100% of lane)
 -- arc key   : freeze speeds
 --
--- enc1 root   enc2 scale   enc3 lane length
--- key2 regen pitches    key3 regen rhythms
--- hold key1 for alt: k1+e1/2/3 vel/pulses    k1+k2 panic    k1+k3 regen all
+-- enc1 velocity   enc2 v1 octave   enc3 v2 octave
+-- key2 cycle v1 scale   key3 cycle v2 scale
+-- per-voice root / lane length live in PARAMETERS
 
 local musicutil = require("musicutil")
 local er = require("er")
 
--- ---------------------------------------------------------------------------
--- Constants
--- ---------------------------------------------------------------------------
+-- === Constants ===
 
 local TICK_HZ = 60
 local RING_LEDS = 64
@@ -26,15 +24,17 @@ local SPEED_CLAMP = 32
 local NUM_VOICES = 2
 local NUM_RINGS = 4
 
--- ring layout: voice v owns rings (v*2 - 1) speed and (v*2) offset
-local SPEED_RING = { 1, 3 }
-local OFFSET_RING = { 2, 4 }
+-- voice v owns ring (v*2 - 1) sequence and (v*2) density
+local SEQ_RING = { 1, 3 }
+local PULSE_RING = { 2, 4 }
 
--- ---------------------------------------------------------------------------
--- State
--- ---------------------------------------------------------------------------
+local LANE_LEN_MIN = 3
+local LANE_LEN_MAX = 32
+local OCTAVE_MIN = 0
+local OCTAVE_MAX = 8
 
--- One phasor per voice; phase drives both pitch lane and Euclidean gate.
+-- === State ===
+
 local phasors = {}
 for v = 1, NUM_VOICES do
   phasors[v] = { speed = 0, phase = 0 }
@@ -43,30 +43,23 @@ end
 local voices = {}
 for v = 1, NUM_VOICES do
   voices[v] = {
-    ch = v,
-    pitch_lane = {},
+    pitch_lane = {}, -- length = lane_len, MIDI notes
+    rhythm = {}, -- same length, true = pulse, false = rest
     pitch_idx = 1,
-    offset = 0, -- scale-degree transpose, unbounded; wraps an octave per lane_len
-    rhythm = {},
-    gate_idx = 0,
-    gate_high = false,
     last_note = nil,
+    gate_high = false,
   }
 end
 
--- Arc delta accumulator (one per ring) for snows-style coarse stepping.
+-- snows-style coarse stepping: one accumulator per arc ring
 local arc_ticks = { 0, 0, 0, 0 }
-
-local k1_down = false
 
 local a -- arc.connect()
 local m -- midi.connect(target)
 local dirty = true
 local screen_dirty = true
 
--- ---------------------------------------------------------------------------
--- MIDI devices
--- ---------------------------------------------------------------------------
+-- === MIDI devices ===
 
 local midi_devices = {}
 local midi_device_names = {}
@@ -97,15 +90,10 @@ local function panic()
   end
 end
 
--- ---------------------------------------------------------------------------
--- Params
--- ---------------------------------------------------------------------------
+-- === Params ===
 
--- Forward decls; setup_params set_actions call these.
 local regen_pitch_lane
-local regen_pitch_lanes
 local regen_rhythm
-local regen_rhythms
 
 local scale_names = {}
 for i, s in ipairs(musicutil.SCALES) do
@@ -132,64 +120,54 @@ local function setup_params()
     panic()
   end)
 
-  -- Raw arc deltas per emitted step. Default 4 == snows.lua arc_res(i, 4).
+  -- Raw deltas per emitted step (snows arc_res(i, 4) feel at 4).
   params:add_number("arc_sens", "arc sensitivity", 1, 16, 4)
 
-  params:add_group("voices", 6)
-  params:add_number("v1_ch", "voice 1 channel", 1, 16, 1)
-  params:add_number("v2_ch", "voice 2 channel", 1, 16, 2)
   params:add_number("velocity", "velocity", 1, 127, 100)
-  params:add_option("root", "root", musicutil.NOTE_NAMES, 1)
-  params:set_action("root", function()
-    regen_pitch_lanes()
-  end)
-  params:add_option("scale", "scale", scale_names, scale_index("Natural Minor"))
-  params:set_action("scale", function()
-    regen_pitch_lanes()
-  end)
-  params:add_number("lane_len", "pitch lane length", 3, 12, 5)
-  params:set_action("lane_len", function()
-    regen_pitch_lanes()
-  end)
 
-  params:add_group("rhythm", 4)
-  params:add_number("v1_steps", "v1 rhythm steps", 4, 32, 16)
-  params:set_action("v1_steps", function(v)
-    if params:get("v1_pulses") > v then
-      params:set("v1_pulses", v)
-    end
-    regen_rhythm(1)
-  end)
-  params:add_number("v1_pulses", "v1 rhythm pulses", 1, 32, 5)
-  params:set_action("v1_pulses", function()
-    regen_rhythm(1)
-  end)
-  params:add_number("v2_steps", "v2 rhythm steps", 4, 32, 16)
-  params:set_action("v2_steps", function(v)
-    if params:get("v2_pulses") > v then
-      params:set("v2_pulses", v)
-    end
-    regen_rhythm(2)
-  end)
-  params:add_number("v2_pulses", "v2 rhythm pulses", 1, 32, 7)
-  params:set_action("v2_pulses", function()
-    regen_rhythm(2)
-  end)
+  for v = 1, NUM_VOICES do
+    local default_octave = (v == 1) and 5 or 4
+    params:add_group("voice " .. v, 6)
+    params:add_number("v" .. v .. "_ch", "channel", 1, 16, v)
+    params:add_option("v" .. v .. "_root", "root", musicutil.NOTE_NAMES, 1)
+    params:set_action("v" .. v .. "_root", function()
+      regen_pitch_lane(v)
+    end)
+    params:add_option("v" .. v .. "_scale", "scale", scale_names, scale_index("Natural Minor"))
+    params:set_action("v" .. v .. "_scale", function()
+      regen_pitch_lane(v)
+    end)
+    params:add_number("v" .. v .. "_octave", "octave", OCTAVE_MIN, OCTAVE_MAX, default_octave)
+    params:set_action("v" .. v .. "_octave", function()
+      regen_pitch_lane(v)
+    end)
+    params:add_number("v" .. v .. "_lane_len", "lane length", LANE_LEN_MIN, LANE_LEN_MAX, 16)
+    params:set_action("v" .. v .. "_lane_len", function()
+      regen_pitch_lane(v)
+      regen_rhythm(v)
+    end)
+    params:add_number("v" .. v .. "_pulses", "pulses", 0, LANE_LEN_MAX, 1)
+    params:set_action("v" .. v .. "_pulses", function(p)
+      local len = params:get("v" .. v .. "_lane_len")
+      if p > len then
+        params:set("v" .. v .. "_pulses", len)
+        return
+      end
+      regen_rhythm(v)
+    end)
+  end
 
   params:bang()
 end
 
--- ---------------------------------------------------------------------------
--- Pattern generation
--- ---------------------------------------------------------------------------
-
--- Distinct registers so a shared root yields two octaves.
-local VOICE_BASE = { 60, 48 }
+-- === Pattern generation ===
 
 function regen_pitch_lane(v)
-  local root = (params:get("root") - 1) + VOICE_BASE[v]
-  local scale_name = scale_names[params:get("scale")]
-  local len = params:get("lane_len")
+  local root_idx = params:get("v" .. v .. "_root")
+  local octave = params:get("v" .. v .. "_octave")
+  local root = (root_idx - 1) + octave * 12
+  local scale_name = scale_names[params:get("v" .. v .. "_scale")]
+  local len = params:get("v" .. v .. "_lane_len")
   voices[v].pitch_lane = musicutil.generate_scale_of_length(root, scale_name, len)
   if voices[v].pitch_idx > #voices[v].pitch_lane then
     voices[v].pitch_idx = 1
@@ -198,37 +176,25 @@ function regen_pitch_lane(v)
   screen_dirty = true
 end
 
-function regen_pitch_lanes()
-  for v = 1, NUM_VOICES do
-    regen_pitch_lane(v)
-  end
-end
-
 function regen_rhythm(v)
-  local steps = params:get("v" .. v .. "_steps")
-  local pulses = params:get("v" .. v .. "_pulses")
-  voices[v].rhythm = er.gen(pulses, steps)
-  if #voices[v].rhythm > 0 then
-    voices[v].gate_idx = voices[v].gate_idx % #voices[v].rhythm
+  local len = params:get("v" .. v .. "_lane_len")
+  local pulses = math.min(params:get("v" .. v .. "_pulses"), len)
+  local rhythm = {}
+  if pulses <= 0 then
+    for i = 1, len do
+      rhythm[i] = false
+    end
   else
-    voices[v].gate_idx = 0
+    rhythm = er.gen(pulses, len)
   end
+  voices[v].rhythm = rhythm
   dirty = true
   screen_dirty = true
 end
 
-function regen_rhythms()
-  for v = 1, NUM_VOICES do
-    regen_rhythm(v)
-  end
-end
+-- === Arc input ===
 
--- ---------------------------------------------------------------------------
--- Arc input
--- ---------------------------------------------------------------------------
-
--- Software accumulator; emits one step per arc_sens raw deltas.
--- Mirrors snows' arc_res(i, 4) since norns has no hardware-res arc API.
+-- snows arc_res(i, 4) emulated in software (no hardware-res arc API on norns).
 local function on_arc_delta(n, d)
   local sens = params:get("arc_sens")
   arc_ticks[n] = arc_ticks[n] + d
@@ -246,13 +212,13 @@ local function on_arc_delta(n, d)
   if n % 2 == 1 then
     phasors[v].speed = util.clamp(phasors[v].speed + val, -SPEED_CLAMP, SPEED_CLAMP)
   else
-    voices[v].offset = voices[v].offset + val
+    params:delta("v" .. v .. "_pulses", val)
   end
   dirty = true
   screen_dirty = true
 end
 
--- Arc key freezes both voice phasors. Offsets are persistent.
+-- Arc key freezes both voice phasors.
 local function on_arc_key(n, z)
   if z == 1 then
     for v = 1, NUM_VOICES do
@@ -272,9 +238,7 @@ local function setup_arc()
   a.key = on_arc_key
 end
 
--- ---------------------------------------------------------------------------
--- Sequencer tick
--- ---------------------------------------------------------------------------
+-- === Sequencer tick ===
 
 -- Slots crossed prev -> cur on a circle of `num`, direction `dir`.
 local function steps_between(prev, cur, num, dir)
@@ -285,71 +249,46 @@ local function steps_between(prev, cur, num, dir)
   end
 end
 
--- Rotate within the lane; shift an octave each time offset wraps.
 local function voice_note(v)
   local lane = voices[v].pitch_lane
-  local len = #lane
-  if len == 0 then
+  if #lane == 0 then
     return nil
   end
-  local k = (voices[v].pitch_idx - 1) + voices[v].offset
-  local idx = (k % len) + 1
-  local octave_shift = math.floor(k / len) * 12
-  return lane[idx] + octave_shift
+  return lane[voices[v].pitch_idx]
 end
 
--- Rising edge: note_on armed pitch. Falling edge: note_off last.
-local function apply_gate(v, gate_on)
+-- One slot crossing: kill any held note, then fire a new note iff the
+-- newly armed slot is a pulse. Walked one slot at a time so high speed
+-- still emits every step.
+local function step_voice(v, prev_phase, cur_phase, dir)
   local voice = voices[v]
-  if gate_on and not voice.gate_high then
-    local note = voice_note(v)
-    if note and m then
-      m:note_on(note, params:get("velocity"), params:get("v" .. v .. "_ch"))
-      voice.last_note = note
+  local lane = voice.pitch_lane
+  local len = #lane
+  if len == 0 then
+    return
+  end
+  local slot_w = PHASE_MAX / len
+  local crossings =
+    steps_between(math.floor(prev_phase / slot_w), math.floor(cur_phase / slot_w), len, dir)
+  for _ = 1, crossings do
+    if dir > 0 then
+      voice.pitch_idx = (voice.pitch_idx % len) + 1
+    else
+      voice.pitch_idx = ((voice.pitch_idx - 2) % len) + 1
     end
-    voice.gate_high = true
-  elseif not gate_on and voice.gate_high then
     if voice.last_note and m then
       m:note_off(voice.last_note, 0, params:get("v" .. v .. "_ch"))
     end
     voice.last_note = nil
     voice.gate_high = false
-  end
-end
-
-local function handle_pitch_ring(v, prev_phase, cur_phase, dir)
-  local lane = voices[v].pitch_lane
-  if #lane == 0 then
-    return
-  end
-  local slot_w = PHASE_MAX / #lane
-  local crossings =
-    steps_between(math.floor(prev_phase / slot_w), math.floor(cur_phase / slot_w), #lane, dir)
-  for _ = 1, crossings do
-    if dir > 0 then
-      voices[v].pitch_idx = (voices[v].pitch_idx % #lane) + 1
-    else
-      voices[v].pitch_idx = ((voices[v].pitch_idx - 2) % #lane) + 1
+    if voice.rhythm[voice.pitch_idx] and m then
+      local note = lane[voice.pitch_idx]
+      if note then
+        m:note_on(note, params:get("velocity"), params:get("v" .. v .. "_ch"))
+        voice.last_note = note
+        voice.gate_high = true
+      end
     end
-  end
-end
-
--- Walk one slot at a time so balanced pairs still fire at high speed.
-local function handle_rhythm_ring(v, prev_phase, cur_phase, dir)
-  local pat = voices[v].rhythm
-  if #pat == 0 then
-    return
-  end
-  local slot_w = PHASE_MAX / #pat
-  local crossings =
-    steps_between(math.floor(prev_phase / slot_w), math.floor(cur_phase / slot_w), #pat, dir)
-  for _ = 1, crossings do
-    if dir > 0 then
-      voices[v].gate_idx = (voices[v].gate_idx % #pat) + 1
-    else
-      voices[v].gate_idx = ((voices[v].gate_idx - 2) % #pat) + 1
-    end
-    apply_gate(v, pat[voices[v].gate_idx])
   end
 end
 
@@ -360,20 +299,16 @@ local function tick_step()
       local prev = p.phase
       local cur = (prev + p.speed) % PHASE_MAX
       p.phase = cur
-      local dir = p.speed > 0 and 1 or -1
-      handle_pitch_ring(v, prev, cur, dir)
-      handle_rhythm_ring(v, prev, cur, dir)
+      step_voice(v, prev, cur, p.speed > 0 and 1 or -1)
       dirty = true
       screen_dirty = true
     end
   end
 end
 
--- ---------------------------------------------------------------------------
--- Arc drawing
--- ---------------------------------------------------------------------------
+-- === Arc drawing ===
 
--- Triple-LED interpolated cursor (snows.lua / ribbons).
+-- snows.lua triple-LED interpolated cursor.
 local function point(ring, x)
   local xi = math.floor(x)
   local c = xi >> 4
@@ -382,48 +317,40 @@ local function point(ring, x)
   a:led(ring, (c + 63) % 64 + 1, 15 - (xi % 16))
 end
 
-local function slot_led(i, nlen)
-  return math.floor(i * RING_LEDS / nlen) + 1
-end
-
-local function draw_pitch_ring(v)
-  local n = SPEED_RING[v]
-  local lane = voices[v].pitch_lane
-  local nlen = #lane
-  if nlen == 0 then
+-- snows-style cluster: rest = level 1, pulse = level 5, armed slot = 12.
+-- Cluster anchors at LED 32, with adaptive spacing so up to 32 slots
+-- still fit on the 64-LED ring (spacing 2 like snows for short lanes,
+-- collapsing to 1 once the lane gets long enough to need it).
+local function draw_seq_ring(v)
+  local n = SEQ_RING[v]
+  local voice = voices[v]
+  local len = #voice.pitch_lane
+  if len == 0 then
     return
   end
-  for i = 0, nlen - 1 do
-    a:led(n, slot_led(i, nlen), (i + 1 == voices[v].pitch_idx) and 12 or 3)
+  local spacing = math.max(1, math.min(2, math.floor(RING_LEDS / 2 / len)))
+  for i = 1, len do
+    local pos = ((32 + i * spacing - 1) % RING_LEDS) + 1
+    local level = voice.rhythm[i] and 5 or 1
+    if i == voice.pitch_idx then
+      level = 12
+    end
+    a:led(n, pos, level)
   end
   point(n, phasors[v].phase)
 end
 
--- Rhythm pattern + shared phasor cursor + offset marker.
-local function draw_offset_ring(v)
-  local n = OFFSET_RING[v]
-  local pat = voices[v].rhythm
-  local plen = #pat
-  if plen > 0 then
-    for i = 0, plen - 1 do
-      local level
-      if i + 1 == voices[v].gate_idx then
-        level = voices[v].gate_high and 15 or 8
-      elseif pat[i + 1] then
-        level = 6
-      else
-        level = 2
-      end
-      a:led(n, slot_led(i, plen), level)
-    end
-    point(n, phasors[v].phase)
+-- Hard on/off fill 0..100% (silent at 0, full ring at pulses == lane_len).
+local function draw_pulse_ring(v)
+  local n = PULSE_RING[v]
+  local len = params:get("v" .. v .. "_lane_len")
+  local pulses = math.min(params:get("v" .. v .. "_pulses"), len)
+  if len <= 0 then
+    return
   end
-  -- Marker maps one octave (lane_len degrees) to a full ring rotation.
-  local nlen = #voices[v].pitch_lane
-  if nlen > 0 then
-    local within_octave = voices[v].offset % nlen
-    local off_led = math.floor(within_octave * RING_LEDS / nlen) + 1
-    a:led(n, off_led, 15)
+  local fill = math.floor(pulses / len * RING_LEDS + 0.5)
+  for i = 1, fill do
+    a:led(n, i, 15)
   end
 end
 
@@ -433,52 +360,39 @@ local function draw_arc()
   end
   a:all(0)
   for v = 1, NUM_VOICES do
-    draw_pitch_ring(v)
-    draw_offset_ring(v)
+    draw_seq_ring(v)
+    draw_pulse_ring(v)
   end
 end
 
--- ---------------------------------------------------------------------------
--- Norns hardware callbacks
--- ---------------------------------------------------------------------------
+-- === Norns hardware callbacks ===
+
+-- K1 is reserved (quick tap exits to menu). K2 / K3 cycle each voice's
+-- scale forward (wraps at the end of musicutil.SCALES).
+local function cycle_scale(v)
+  local id = "v" .. v .. "_scale"
+  params:set(id, (params:get(id) % #scale_names) + 1)
+end
 
 function key(n, z)
-  if n == 1 then
-    k1_down = (z == 1)
-  elseif n == 2 and z == 1 then
-    if k1_down then
-      panic()
-    else
-      regen_pitch_lanes()
-    end
-  elseif n == 3 and z == 1 then
-    if k1_down then
-      regen_pitch_lanes()
-      regen_rhythms()
-    else
-      regen_rhythms()
-    end
+  if z ~= 1 then
+    return
+  end
+  if n == 2 then
+    cycle_scale(1)
+  elseif n == 3 then
+    cycle_scale(2)
   end
   screen_dirty = true
 end
 
 function enc(n, d)
-  if k1_down then
-    if n == 1 then
-      params:delta("velocity", d)
-    elseif n == 2 then
-      params:delta("v1_pulses", d)
-    elseif n == 3 then
-      params:delta("v2_pulses", d)
-    end
-  else
-    if n == 1 then
-      params:delta("root", d)
-    elseif n == 2 then
-      params:delta("scale", d)
-    elseif n == 3 then
-      params:delta("lane_len", d)
-    end
+  if n == 1 then
+    params:delta("velocity", d)
+  elseif n == 2 then
+    params:delta("v1_octave", d)
+  elseif n == 3 then
+    params:delta("v2_octave", d)
   end
   screen_dirty = true
 end
@@ -492,31 +406,45 @@ local function speed_glyph(speed)
   return string.rep((speed > 0) and ">" or "<", bars)
 end
 
+local function scale_short(name)
+  return string.upper(string.sub(name, 1, 3))
+end
+
 local function draw_voice_row(v, y)
   local voice = voices[v]
   local note = voice_note(v)
   local note_str = note and musicutil.note_num_to_name(note, true) or "--"
   local gate_str = voice.gate_high and "*" or "-"
+  local root_idx = params:get("v" .. v .. "_root")
+  local octave = params:get("v" .. v .. "_octave")
+  local scale_str = scale_short(scale_names[params:get("v" .. v .. "_scale")])
+  local key_str = musicutil.NOTE_NAMES[root_idx] .. scale_str .. octave
+  local len = params:get("v" .. v .. "_lane_len")
+  local pulses = math.min(params:get("v" .. v .. "_pulses"), len)
 
   screen.level(15)
   screen.move(2, y)
-  screen.text("v" .. v .. " ch" .. params:get("v" .. v .. "_ch"))
+  screen.text("v" .. v)
+
+  screen.level(8)
+  screen.move(15, y)
+  screen.text(key_str)
 
   screen.level(10)
-  screen.move(36, y)
+  screen.move(54, y)
   screen.text(note_str)
 
   screen.level(voice.gate_high and 15 or 4)
-  screen.move(64, y)
+  screen.move(78, y)
   screen.text(gate_str)
 
   screen.level(6)
-  screen.move(72, y)
-  screen.text("s:" .. speed_glyph(phasors[v].speed))
-  screen.move(98, y)
-  local off = voice.offset
-  local off_str = (off >= 0) and ("o:+" .. off) or ("o:" .. off)
-  screen.text(off_str)
+  screen.move(86, y)
+  screen.text(speed_glyph(phasors[v].speed))
+
+  screen.level(6)
+  screen.move(108, y)
+  screen.text(pulses .. "/" .. len)
 end
 
 function redraw()
@@ -527,33 +455,21 @@ function redraw()
   screen.level(6)
   screen.move(2, 10)
   screen.text("squircle")
-  screen.level(10)
-  screen.move(60, 10)
-  screen.text(musicutil.NOTE_NAMES[params:get("root")] .. " " .. scale_names[params:get("scale")])
+  screen.level(4)
+  screen.move(126, 10)
+  screen.text_right("vel " .. params:get("velocity"))
 
-  if k1_down then
-    screen.level(15)
-    screen.move(126, 10)
-    screen.text_right("ALT")
-  end
-
-  draw_voice_row(1, 30)
+  draw_voice_row(1, 28)
   draw_voice_row(2, 44)
 
   screen.level(3)
   screen.move(2, 62)
-  if k1_down then
-    screen.text("k1+k2 panic   k1+k3 regen all")
-  else
-    screen.text("k1 alt   k2 pitch   k3 rhythm")
-  end
+  screen.text("e1 vel  e2/3 oct  k2/3 scale")
 
   screen.update()
 end
 
--- ---------------------------------------------------------------------------
--- Lifecycle
--- ---------------------------------------------------------------------------
+-- === Lifecycle ===
 
 local tick_clock_id
 local screen_clock_id
@@ -584,20 +500,9 @@ end
 
 function init()
   setup_params()
-  refresh_midi_target()
   setup_arc()
-
-  regen_pitch_lanes()
-  regen_rhythms()
-
   tick_clock_id = clock.run(tick_loop)
   screen_clock_id = clock.run(screen_loop)
-
-  redraw()
-  draw_arc()
-  if a then
-    a:refresh()
-  end
 end
 
 function cleanup()

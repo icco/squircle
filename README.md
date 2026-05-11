@@ -2,7 +2,7 @@
 
 > dual midi sequencer for arc
 
-Two voices, each with one phasor and a scale-degree transpose wheel. The phasor advances both a pitch lane and a Euclidean rhythm; the transpose wheel rotates the lane through octaves.
+Two voices, one phasor each, snows-style arc UI. Per voice: arc 1/3 sets phasor speed and shows the pitch lane, arc 2/4 sets Euclidean rhythm density (0% silence, 100% every step).
 
 UI inspired by [snows.lua](https://codeberg.org/tehn/iii-scripts/raw/branch/main/arc/snows.lua) and [ribbons](https://github.com/tehn/ribbons). Designed for [Music Thing 98-duo-midi](https://tomwhitwell.github.io/Workshop_Computer/programs/98-duo-midi/index.html) and [ALM mmMidi](https://busycircuits.com/pages/alm023), but works with any MIDI destination.
 
@@ -23,32 +23,28 @@ In maiden:
 ## controls
 
 ```
-arc 1 / 3 : phasor speed   (v1 / v2, drives pitch + rhythm)
-arc 2 / 4 : transpose      (v1 / v2, scale-degree, wraps octaves)
+arc 1 / 3 : voice phasor speed   (snows cluster: pulse / rest / armed)
+arc 2 / 4 : voice density        (Euclidean pulses, 0..100% of lane)
 arc key   : freeze speeds
 
-enc 1 root   enc 2 scale   enc 3 lane length
-key 2 regen pitches   key 3 regen rhythms
-
-hold key 1 for alt:
-  k1+e1 velocity   k1+e2 v1 pulses   k1+e3 v2 pulses
-  k1+k2 panic      k1+k3 regen all
+enc 1 velocity   enc 2 v1 octave   enc 3 v2 octave
+key 2 cycle v1 scale   key 3 cycle v2 scale
 ```
 
-Arc encoder feel matches snows: the **arc sensitivity** param (default `4`) sets raw arc deltas per emitted step, mirroring `arc_res(i, 4)` in software.
+Each voice has its own root, scale, octave, lane length (3..32), and pulse count. Defaults to one note per rotation (snows-mode); turn arc 2 / 4 up for more notes per rotation. K1 is reserved by norns, so it isn't bound. Per-voice root / scale / lane length / channel live in PARAMETERS. Arc feel matches snows via the **arc sensitivity** param (default `4`, mirrors `arc_res(i, 4)` in software).
 
 ## parameters
 
-- **midi out** — destination MIDI port
+- **midi out** — destination MIDI port (changing it sends all-notes-off)
 - **arc sensitivity** — `1` most sensitive … `16` slowest
-- **voice 1 / 2 channel** — MIDI channels (default 1, 2)
-- **velocity** — note-on velocity (also k1+e1)
-- **root**, **scale**, **pitch lane length** — both lanes
-- **v1 / v2 rhythm steps + pulses** — Euclidean per voice (pulses also k1+e2 / k1+e3)
+- **velocity** — note-on velocity (also e1)
+- per voice (`voice 1` / `voice 2` groups):
+  - **channel** — MIDI channel
+  - **root** / **scale** / **octave** — lane key (octave also e2 / e3)
+  - **lane length** — pitch slots (3..32)
+  - **pulses** — Euclidean pulse count (also arc 2 / 4)
 
 ## references
-
-Read these before changing arc input, encoder feel, or norns key/encoder UX.
 
 Reference scripts:
 

@@ -280,7 +280,8 @@ local function handle_pitch_ring(v, prev_phase, cur_phase, dir)
     return
   end
   local slot_w = PHASE_MAX / #lane
-  local crossings = steps_between(math.floor(prev_phase / slot_w), math.floor(cur_phase / slot_w), #lane, dir)
+  local crossings =
+    steps_between(math.floor(prev_phase / slot_w), math.floor(cur_phase / slot_w), #lane, dir)
   for _ = 1, crossings do
     if dir > 0 then
       voices[v].pitch_idx = (voices[v].pitch_idx % #lane) + 1
@@ -297,7 +298,8 @@ local function handle_rhythm_ring(v, prev_phase, cur_phase, dir)
     return
   end
   local slot_w = PHASE_MAX / #pat
-  local crossings = steps_between(math.floor(prev_phase / slot_w), math.floor(cur_phase / slot_w), #pat, dir)
+  local crossings =
+    steps_between(math.floor(prev_phase / slot_w), math.floor(cur_phase / slot_w), #pat, dir)
   for _ = 1, crossings do
     if dir > 0 then
       voices[v].gate_idx = (voices[v].gate_idx % #pat) + 1

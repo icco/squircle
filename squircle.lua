@@ -34,7 +34,7 @@ local SEQ_RING = { 1, 3 }
 local PULSE_RING = { 2, 4 }
 
 local LANE_LEN_MIN = 3
-local LANE_LEN_MAX = 12
+local LANE_LEN_MAX = 16 -- snows cluster fits in 1..64 at LED 32 + i*2
 
 -- Pulses share lane bounds: 0 = silence, lane_len = every slot fires.
 local LANE_LEN_MIN_PULSES = 0
@@ -145,7 +145,7 @@ local function setup_params()
   params:add_group("voices", 9)
   params:add_number("v1_ch", "voice 1 channel", 1, 16, 1)
   params:add_number("v2_ch", "voice 2 channel", 1, 16, 2)
-  params:add_number("v1_lane_len", "v1 lane length", LANE_LEN_MIN, LANE_LEN_MAX, 5)
+  params:add_number("v1_lane_len", "v1 lane length", LANE_LEN_MIN, LANE_LEN_MAX, LANE_LEN_MAX)
   params:set_action("v1_lane_len", function()
     regen_pitch_lane(1)
     regen_rhythm(1)
@@ -159,7 +159,7 @@ local function setup_params()
     end
     regen_rhythm(1)
   end)
-  params:add_number("v2_lane_len", "v2 lane length", LANE_LEN_MIN, LANE_LEN_MAX, 5)
+  params:add_number("v2_lane_len", "v2 lane length", LANE_LEN_MIN, LANE_LEN_MAX, LANE_LEN_MAX)
   params:set_action("v2_lane_len", function()
     regen_pitch_lane(2)
     regen_rhythm(2)

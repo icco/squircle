@@ -1,6 +1,5 @@
 -- squircle: dual midi sequencer for arc
 -- v0.1.0 @icco
--- https://llllllll.co/t/squircle
 --
 -- four free-running phasors
 -- two voices, two midi channels

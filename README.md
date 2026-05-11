@@ -43,7 +43,7 @@ Crossing a step boundary on a pitch ring advances the armed note in that voice's
 
 ## hardware notes
 
-[mmMidi](https://busycircuits.com/pages/alm023) splits the two channels to independent V/oct + gate pairs. [98-duo-midi](https://tomwhitwell.github.io/Workshop_Computer/programs/98-duo-midi/index.html) ignores channel and round-robins both voices into one duo allocator — denser, less segregated.
+Both [mmMidi](https://busycircuits.com/pages/alm023) and [98-duo-midi](https://tomwhitwell.github.io/Workshop_Computer/programs/98-duo-midi/index.html) end up with two independent V/oct + gate pairs from squircle's two voices. mmMidi routes by MIDI channel; 98-duo-midi receives on all channels and allocates by nearest pitch, which lands cleanly because the two voices default to different octaves.
 
 ## license
 

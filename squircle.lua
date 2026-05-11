@@ -134,7 +134,7 @@ local function setup_params()
     panic()
   end)
 
-  -- Raw arc deltas per emitted step. Default 4 == snows.lua arc_res(i, 4).
+  -- Raw deltas per emitted step (snows arc_res(i, 4) feel at 4).
   params:add_number("arc_sens", "arc sensitivity", 1, 16, 4)
 
   params:add_trigger("panic", "panic (all notes off)")
@@ -227,8 +227,7 @@ function regen_rhythm(v)
   local steps = params:get("v" .. v .. "_steps")
   local pulses = params:get("v" .. v .. "_pulses")
   if pulses <= 0 then
-    -- All-rests pattern; the phasor still walks slots so gate_high
-    -- closes any held note, but no new note_on fires.
+    -- All-rests; phasor still walks so any held note closes.
     local rhythm = {}
     for i = 1, steps do
       rhythm[i] = false
@@ -256,8 +255,7 @@ end
 -- Arc input
 -- ---------------------------------------------------------------------------
 
--- Software accumulator; emits one step per arc_sens raw deltas.
--- Mirrors snows' arc_res(i, 4) since norns has no hardware-res arc API.
+-- snows arc_res(i, 4) emulated in software (no hardware-res arc API on norns).
 local function on_arc_delta(n, d)
   local sens = params:get("arc_sens")
   arc_ticks[n] = arc_ticks[n] + d
@@ -423,8 +421,7 @@ local function draw_seq_ring(v)
   point(n, phasors[v].phase)
 end
 
--- Hard-on fill arc 0..100%: LEDs 1..fill are on, the rest are off.
--- 0 pulses -> empty ring (silence); pulses == steps -> full ring.
+-- Hard on/off fill 0..100% (silent at 0, full ring at pulses == steps).
 local function draw_pulse_ring(v)
   local n = PULSE_RING[v]
   local pulses = params:get("v" .. v .. "_pulses")
@@ -453,8 +450,7 @@ end
 -- Norns hardware callbacks
 -- ---------------------------------------------------------------------------
 
--- K1 is reserved by norns (a quick tap exits the script to the menu),
--- so we never bind K1 here. K2 / K3 each do exactly one thing on press.
+-- K1 is reserved (quick tap exits to menu); K2/K3 fire once on press.
 function key(n, z)
   if z ~= 1 then
     return

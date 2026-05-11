@@ -2,7 +2,7 @@
 
 > dual midi sequencer for arc
 
-Two voices, each with one phasor and a scale-degree transpose wheel. The phasor advances both a pitch lane and a Euclidean rhythm; the transpose wheel rotates the lane through octaves.
+Two voices, one phasor each, snows-style arc UI. Per voice: arc 1/3 sets phasor speed and shows the pitch lane, arc 2/4 sets Euclidean rhythm density (0% silence, 100% every step).
 
 UI inspired by [snows.lua](https://codeberg.org/tehn/iii-scripts/raw/branch/main/arc/snows.lua) and [ribbons](https://github.com/tehn/ribbons). Designed for [Music Thing 98-duo-midi](https://tomwhitwell.github.io/Workshop_Computer/programs/98-duo-midi/index.html) and [ALM mmMidi](https://busycircuits.com/pages/alm023), but works with any MIDI destination.
 
@@ -31,11 +31,7 @@ enc 1 root   enc 2 scale   enc 3 velocity
 key 2 regen pitches   key 3 regen rhythms
 ```
 
-Designed as a slowly-moving performance device. Each voice has one phasor, drawn snows-style on arc 1 / 3: every step in the lane is a dim LED, the armed step is brighter, and the snows triple-LED interpolated cursor sweeps the phase. Arc 2 / 4 control the Euclidean rhythm density for that voice — at 0% no notes play, at 100% every step fires. Display is hard on/off: lit LEDs from LED 1 around the ring proportional to `pulses / steps`.
-
-K1 is reserved by norns (a quick tap exits to the system menu), so this script doesn't bind it. Panic, per-voice lane length, MIDI channels, and rhythm step count live in PARAMETERS. Default rhythm is all-on so notes fire on every step (snows behavior); turn arc 2 / 4 down for silence.
-
-Arc encoder feel matches snows: the **arc sensitivity** param (default `4`) sets raw arc deltas per emitted step, mirroring `arc_res(i, 4)` in software.
+K1 is reserved by norns (quick tap exits to menu), so it isn't bound. Panic, per-voice lane length, MIDI channels, and rhythm step count live in PARAMETERS. Arc feel matches snows via the **arc sensitivity** param (default `4`, mirrors `arc_res(i, 4)` in software).
 
 ## parameters
 
@@ -50,8 +46,6 @@ Arc encoder feel matches snows: the **arc sensitivity** param (default `4`) sets
 - **v1 / v2 rhythm pulses** — Euclidean pulse count (also arc 2 / 4)
 
 ## references
-
-Read these before changing arc input, encoder feel, or norns key/encoder UX.
 
 Reference scripts:
 

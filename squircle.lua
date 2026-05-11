@@ -1,5 +1,5 @@
 -- squircle: dual midi sequencer for arc
--- v0.2.0 @icco
+-- v0.2.1 @icco
 --
 -- one phasor per voice, two midi channels
 --
@@ -8,8 +8,8 @@
 -- arc key   : freeze speeds
 --
 -- enc1 root   enc2 scale   enc3 lane length
--- key2 regen pitches    key3 regen rhythms
--- hold key1 for alt: k1+e1/2/3 vel/pulses    k1+k2 panic    k1+k3 regen all
+-- key2 regen pitches   key3 regen rhythms
+-- panic and other params live in PARAMETERS
 
 local musicutil = require("musicutil")
 local er = require("er")
@@ -56,8 +56,6 @@ end
 
 -- Arc delta accumulator (one per ring) for snows-style coarse stepping.
 local arc_ticks = { 0, 0, 0, 0 }
-
-local k1_down = false
 
 local a -- arc.connect()
 local m -- midi.connect(target)
@@ -134,6 +132,9 @@ local function setup_params()
 
   -- Raw arc deltas per emitted step. Default 4 == snows.lua arc_res(i, 4).
   params:add_number("arc_sens", "arc sensitivity", 1, 16, 4)
+
+  params:add_trigger("panic", "panic (all notes off)")
+  params:set_action("panic", panic)
 
   params:add_group("voices", 6)
   params:add_number("v1_ch", "voice 1 channel", 1, 16, 1)
@@ -399,32 +400,21 @@ local function draw_pitch_ring(v)
   point(n, phasors[v].phase)
 end
 
--- Rhythm pattern + shared phasor cursor + offset marker.
+-- Offset ring: dim slot for each scale degree, bright marker at the
+-- current offset within the octave. Mirrors the pitch ring's layout so
+-- the two rings read as a pair: ring 1/3 = where the playhead is,
+-- ring 2/4 = how far you've transposed.
 local function draw_offset_ring(v)
   local n = OFFSET_RING[v]
-  local pat = voices[v].rhythm
-  local plen = #pat
-  if plen > 0 then
-    for i = 0, plen - 1 do
-      local level
-      if i + 1 == voices[v].gate_idx then
-        level = voices[v].gate_high and 15 or 8
-      elseif pat[i + 1] then
-        level = 6
-      else
-        level = 2
-      end
-      a:led(n, slot_led(i, plen), level)
-    end
-    point(n, phasors[v].phase)
-  end
-  -- Marker maps one octave (lane_len degrees) to a full ring rotation.
   local nlen = #voices[v].pitch_lane
-  if nlen > 0 then
-    local within_octave = voices[v].offset % nlen
-    local off_led = math.floor(within_octave * RING_LEDS / nlen) + 1
-    a:led(n, off_led, 15)
+  if nlen == 0 then
+    return
   end
+  for i = 0, nlen - 1 do
+    a:led(n, slot_led(i, nlen), 2)
+  end
+  local within_octave = voices[v].offset % nlen
+  a:led(n, slot_led(within_octave, nlen), 15)
 end
 
 local function draw_arc()
@@ -442,43 +432,27 @@ end
 -- Norns hardware callbacks
 -- ---------------------------------------------------------------------------
 
+-- K1 is reserved by norns (a quick tap exits the script to the menu),
+-- so we never bind K1 here. K2 / K3 each do exactly one thing on press.
 function key(n, z)
-  if n == 1 then
-    k1_down = (z == 1)
-  elseif n == 2 and z == 1 then
-    if k1_down then
-      panic()
-    else
-      regen_pitch_lanes()
-    end
-  elseif n == 3 and z == 1 then
-    if k1_down then
-      regen_pitch_lanes()
-      regen_rhythms()
-    else
-      regen_rhythms()
-    end
+  if z ~= 1 then
+    return
+  end
+  if n == 2 then
+    regen_pitch_lanes()
+  elseif n == 3 then
+    regen_rhythms()
   end
   screen_dirty = true
 end
 
 function enc(n, d)
-  if k1_down then
-    if n == 1 then
-      params:delta("velocity", d)
-    elseif n == 2 then
-      params:delta("v1_pulses", d)
-    elseif n == 3 then
-      params:delta("v2_pulses", d)
-    end
-  else
-    if n == 1 then
-      params:delta("root", d)
-    elseif n == 2 then
-      params:delta("scale", d)
-    elseif n == 3 then
-      params:delta("lane_len", d)
-    end
+  if n == 1 then
+    params:delta("root", d)
+  elseif n == 2 then
+    params:delta("scale", d)
+  elseif n == 3 then
+    params:delta("lane_len", d)
   end
   screen_dirty = true
 end
@@ -531,22 +505,12 @@ function redraw()
   screen.move(60, 10)
   screen.text(musicutil.NOTE_NAMES[params:get("root")] .. " " .. scale_names[params:get("scale")])
 
-  if k1_down then
-    screen.level(15)
-    screen.move(126, 10)
-    screen.text_right("ALT")
-  end
-
   draw_voice_row(1, 30)
   draw_voice_row(2, 44)
 
   screen.level(3)
   screen.move(2, 62)
-  if k1_down then
-    screen.text("k1+k2 panic   k1+k3 regen all")
-  else
-    screen.text("k1 alt   k2 pitch   k3 rhythm")
-  end
+  screen.text("k2 regen pitch   k3 regen rhythm")
 
   screen.update()
 end

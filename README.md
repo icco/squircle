@@ -29,11 +29,9 @@ arc key   : freeze speeds
 
 enc 1 root   enc 2 scale   enc 3 lane length
 key 2 regen pitches   key 3 regen rhythms
-
-hold key 1 for alt:
-  k1+e1 velocity   k1+e2 v1 pulses   k1+e3 v2 pulses
-  k1+k2 panic      k1+k3 regen all
 ```
+
+K1 is reserved by norns (a quick tap exits to the system menu), so this script doesn't bind it. Panic, velocity, MIDI channels, and rhythm pulses live in the PARAMETERS menu.
 
 Arc encoder feel matches snows: the **arc sensitivity** param (default `4`) sets raw arc deltas per emitted step, mirroring `arc_res(i, 4)` in software.
 
@@ -41,10 +39,11 @@ Arc encoder feel matches snows: the **arc sensitivity** param (default `4`) sets
 
 - **midi out** — destination MIDI port
 - **arc sensitivity** — `1` most sensitive … `16` slowest
+- **panic** — trigger; sends all-notes-off on every voice channel
 - **voice 1 / 2 channel** — MIDI channels (default 1, 2)
-- **velocity** — note-on velocity (also k1+e1)
+- **velocity** — note-on velocity
 - **root**, **scale**, **pitch lane length** — both lanes
-- **v1 / v2 rhythm steps + pulses** — Euclidean per voice (pulses also k1+e2 / k1+e3)
+- **v1 / v2 rhythm steps + pulses** — Euclidean per voice
 
 ## references
 

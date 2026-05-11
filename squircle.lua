@@ -3,13 +3,16 @@
 --
 -- one phasor per voice, two midi channels
 --
--- arc 1 / 3 : phasor speed     (v1 / v2)
--- arc 2 / 4 : rhythm pulses    (v1 / v2)
+-- arc 1 / 3 : phasor speed   (v1 / v2)
+-- arc 2 / 4 : transpose      (v1 / v2, scale-degree, wraps octaves)
 -- arc key   : freeze speeds
 --
--- enc1 root   enc2 v1 transpose   enc3 v2 transpose
+-- ribbons-style display: notes appear at their chromatic position on
+-- arc 1/3; turning arc 2/4 shifts the whole layout around the ring.
+--
+-- enc1 root   enc2 scale   enc3 lane length
 -- key2 regen pitches   key3 regen rhythms
--- panic, scale, lane length, channels live in PARAMETERS
+-- panic and other params live in PARAMETERS
 
 local musicutil = require("musicutil")
 local er = require("er")
@@ -26,9 +29,12 @@ local SPEED_CLAMP = 32
 local NUM_VOICES = 2
 local NUM_RINGS = 4
 
--- ring layout: voice v owns rings (v*2 - 1) pitch and (v*2) rhythm
+-- ring layout: voice v owns rings (v*2 - 1) pitch and (v*2) transpose
 local PITCH_RING = { 1, 3 }
-local RHYTHM_RING = { 2, 4 }
+local TRANSPOSE_RING = { 2, 4 }
+
+-- ribbons-style chromatic-anchor offset (sets where root sits on ring)
+local RING_OFFSET = 40
 
 -- ---------------------------------------------------------------------------
 -- State
@@ -259,7 +265,7 @@ local function on_arc_delta(n, d)
   if n % 2 == 1 then
     phasors[v].speed = util.clamp(phasors[v].speed + val, -SPEED_CLAMP, SPEED_CLAMP)
   else
-    params:delta("v" .. v .. "_pulses", val)
+    params:delta("v" .. v .. "_transpose", val)
   end
   dirty = true
   screen_dirty = true
@@ -386,47 +392,54 @@ end
 -- Arc drawing
 -- ---------------------------------------------------------------------------
 
--- Triple-LED interpolated cursor (snows.lua / ribbons).
-local function point(ring, x)
-  local xi = math.floor(x)
-  local c = xi >> 4
-  a:led(ring, c % 64 + 1, 15)
-  a:led(ring, (c + 1) % 64 + 1, xi % 16)
-  a:led(ring, (c + 63) % 64 + 1, 15 - (xi % 16))
+-- Ribbons-style chromatic placement: each note shows up at its MIDI value
+-- mod 64 (anchored by RING_OFFSET). Turn the transpose wheel and every
+-- note's chromatic position shifts, so arc 1/3 and arc 2/4 visibly
+-- rotate together.
+local function chromatic_pos(note)
+  return (note + RING_OFFSET) % RING_LEDS + 1
 end
 
-local function slot_led(i, nlen)
-  return math.floor(i * RING_LEDS / nlen) + 1
+-- Note at lane index i (0-based) with the voice's transpose applied.
+local function lane_note_at(v, i)
+  local lane = voices[v].pitch_lane
+  local len = #lane
+  local k = i + voices[v].offset
+  local idx = (k % len) + 1
+  local octave_shift = math.floor(k / len) * 12
+  return lane[idx] + octave_shift
 end
 
 local function draw_pitch_ring(v)
   local n = PITCH_RING[v]
-  local lane = voices[v].pitch_lane
-  local nlen = #lane
-  if nlen == 0 then
+  local len = #voices[v].pitch_lane
+  if len == 0 then
     return
   end
-  for i = 0, nlen - 1 do
-    a:led(n, slot_led(i, nlen), (i + 1 == voices[v].pitch_idx) and 12 or 3)
+  for i = 0, len - 1 do
+    a:led(n, chromatic_pos(lane_note_at(v, i)), 3)
   end
-  point(n, phasors[v].phase)
+  -- Bright LED at the currently armed note's chromatic position.
+  local now_note = voice_note(v)
+  if now_note then
+    a:led(n, chromatic_pos(now_note), 15)
+  end
 end
 
--- Rhythm ring: dim slot for empty step, brighter for a Euclidean pulse,
--- plus the same shared phasor cursor. No gate-state brightness toggle
--- (which previously caused the active slot to flicker bright/dim) and
--- no extra marker overlap.
-local function draw_rhythm_ring(v)
-  local n = RHYTHM_RING[v]
-  local pat = voices[v].rhythm
-  local plen = #pat
-  if plen == 0 then
+-- Transpose ring: same chromatic layout (so the wheel feels coupled to
+-- the pitch ring) plus a brighter marker on the lane's current downbeat
+-- (lane index 0 with transpose applied) so turning the wheel produces
+-- immediate motion on this ring as well.
+local function draw_transpose_ring(v)
+  local n = TRANSPOSE_RING[v]
+  local len = #voices[v].pitch_lane
+  if len == 0 then
     return
   end
-  for i = 0, plen - 1 do
-    a:led(n, slot_led(i, plen), pat[i + 1] and 6 or 2)
+  for i = 0, len - 1 do
+    a:led(n, chromatic_pos(lane_note_at(v, i)), 3)
   end
-  point(n, phasors[v].phase)
+  a:led(n, chromatic_pos(lane_note_at(v, 0)), 15)
 end
 
 local function draw_arc()
@@ -436,7 +449,7 @@ local function draw_arc()
   a:all(0)
   for v = 1, NUM_VOICES do
     draw_pitch_ring(v)
-    draw_rhythm_ring(v)
+    draw_transpose_ring(v)
   end
 end
 
@@ -462,9 +475,9 @@ function enc(n, d)
   if n == 1 then
     params:delta("root", d)
   elseif n == 2 then
-    params:delta("v1_transpose", d)
+    params:delta("scale", d)
   elseif n == 3 then
-    params:delta("v2_transpose", d)
+    params:delta("lane_len", d)
   end
   screen_dirty = true
 end
@@ -522,7 +535,7 @@ function redraw()
 
   screen.level(3)
   screen.move(2, 62)
-  screen.text("e1 root  e2/3 transpose  k2/3 regen")
+  screen.text("arc 2/4 transpose   k2/3 regen")
 
   screen.update()
 end

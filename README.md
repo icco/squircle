@@ -23,15 +23,17 @@ In maiden:
 ## controls
 
 ```
-arc 1 / 3 : phasor speed    (v1 / v2, drives pitch + rhythm)
-arc 2 / 4 : rhythm pulses   (v1 / v2, Euclidean pulse count)
+arc 1 / 3 : phasor speed   (v1 / v2, drives pitch + rhythm)
+arc 2 / 4 : transpose      (v1 / v2, scale-degree, wraps octaves)
 arc key   : freeze speeds
 
-enc 1 root   enc 2 v1 transpose   enc 3 v2 transpose
+enc 1 root   enc 2 scale   enc 3 lane length
 key 2 regen pitches   key 3 regen rhythms
 ```
 
-Per-voice transpose is in scale degrees and wraps an octave per `lane_len` steps, so it stays diatonic. K1 is reserved by norns (a quick tap exits to the system menu), so this script doesn't bind it. Panic, scale, lane length, MIDI channels, and rhythm steps live in the PARAMETERS menu.
+Each pitch ring (arc 1 / 3) lays its lane out chromatically the way `ribbons` does: every note in the (transposed) lane lights a dim LED at its `(note + 40) % 64 + 1` position; the currently armed note is bright. The transpose wheel (arc 2 / 4) shows the same chromatic layout plus a brighter marker on the lane's downbeat — so turning arc 2 visibly rotates both rings.
+
+K1 is reserved by norns (a quick tap exits to the system menu), so this script doesn't bind it. Panic, transpose, MIDI channels, and rhythm steps / pulses live in PARAMETERS.
 
 Arc encoder feel matches snows: the **arc sensitivity** param (default `4`) sets raw arc deltas per emitted step, mirroring `arc_res(i, 4)` in software.
 
@@ -41,10 +43,10 @@ Arc encoder feel matches snows: the **arc sensitivity** param (default `4`) sets
 - **arc sensitivity** — `1` most sensitive … `16` slowest
 - **panic** — trigger; sends all-notes-off on every voice channel
 - **voice 1 / 2 channel** — MIDI channels (default 1, 2)
-- **v1 / v2 transpose** — scale-degree transpose (also enc 2 / 3)
+- **v1 / v2 transpose** — scale-degree transpose (also arc 2 / 4)
 - **velocity** — note-on velocity
-- **root**, **scale**, **pitch lane length** — both lanes
-- **v1 / v2 rhythm steps + pulses** — Euclidean per voice (pulses also arc 2 / 4)
+- **root**, **scale**, **pitch lane length** — both lanes (e1 / e2 / e3)
+- **v1 / v2 rhythm steps + pulses** — Euclidean per voice
 
 ## references
 

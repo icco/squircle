@@ -347,6 +347,81 @@ local function handle_rhythm_ring(v, prev_phase, cur_phase, dir)
   end
 end
 
+-- ---------------------------------------------------------------------------
+-- Arc drawing
+-- ---------------------------------------------------------------------------
+
+-- Triple-LED interpolated cursor borrowed from snows.lua / ribbons. Maps a
+-- phase value in [0, PHASE_MAX) onto the 64-LED ring with sub-LED
+-- precision: the lit LED is bright, the next-leading LED carries the
+-- fractional brightness, and the trailing LED carries the inverse. Reads
+-- as a smooth dot of light moving around the ring.
+local function point(ring, x)
+  local xi = math.floor(x)
+  local c = xi >> 4
+  a:led(ring, c % 64 + 1, 15)
+  a:led(ring, (c + 1) % 64 + 1, xi % 16)
+  a:led(ring, (c + 63) % 64 + 1, 15 - (xi % 16))
+end
+
+-- LED index (1..64) for slot i (0-based) on a ring divided into nlen slots.
+local function slot_led(i, nlen)
+  return math.floor(i * RING_LEDS / nlen) + 1
+end
+
+-- Pitch ring: dim dot at every lane slot, brighter dot at the currently
+-- armed slot, plus the moving cursor.
+local function draw_pitch_ring(v)
+  local n = PITCH_RING[v]
+  local lane = voices[v].pitch_lane
+  local nlen = #lane
+  if nlen == 0 then
+    return
+  end
+  for i = 0, nlen - 1 do
+    local level = (i + 1 == voices[v].pitch_idx) and 12 or 3
+    a:led(n, slot_led(i, nlen), level)
+  end
+  point(n, rings[n].phase)
+end
+
+-- Rhythm ring: dim dot at every step boundary, mid for active gates,
+-- bright at the cursor's current step (extra bright when gate is high),
+-- plus the moving cursor.
+local function draw_rhythm_ring(v)
+  local n = RHYTHM_RING[v]
+  local pat = voices[v].rhythm
+  local nlen = #pat
+  if nlen == 0 then
+    return
+  end
+  for i = 0, nlen - 1 do
+    local active = pat[i + 1]
+    local level
+    if i + 1 == voices[v].gate_idx then
+      level = voices[v].gate_high and 15 or 8
+    elseif active then
+      level = 6
+    else
+      level = 2
+    end
+    a:led(n, slot_led(i, nlen), level)
+  end
+  point(n, rings[n].phase)
+end
+
+-- Clear all rings and redraw them. Caller is responsible for the refresh.
+local function draw_arc()
+  if a == nil then
+    return
+  end
+  a:all(0)
+  for v = 1, NUM_VOICES do
+    draw_pitch_ring(v)
+    draw_rhythm_ring(v)
+  end
+end
+
 -- One tick of the engine: advance every ring with non-zero speed, dispatch
 -- to its pitch/rhythm handler, mark dirty so the redraw loop refreshes.
 local function tick_step()

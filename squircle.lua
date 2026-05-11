@@ -1,18 +1,13 @@
--- squircle: dual midi sequencer for arc
+-- squircle
 -- v0.2.0 @icco
+-- https://github.com/icco/squircle
 --
--- one phasor per voice, two midi channels.
--- arc 2 / 4 transposes each voice through its scale lane (wraps octaves).
+-- dual midi sequencer for arc.
+-- one phasor per voice; arc 2/4 transposes by scale degree.
 --
--- arc 1 / 3 : voice phasor speed   (v1 / v2)
--- arc 2 / 4 : voice pitch offset   (v1 / v2, scale-degree transpose)
--- arc key   : freeze (zero both speeds)
---
--- enc1 root   enc2 scale   enc3 lane length
--- key2 regen pitches    key3 regen rhythms
--- hold key1 for alt:
---   k1+e1 velocity   k1+e2 v1 pulses   k1+e3 v2 pulses
---   k1+k2 panic      k1+k3 regen all
+-- arc 1/3 speed   arc 2/4 transpose   arc key freeze
+-- e1 root  e2 scale  e3 lane len   k2/k3 regen
+-- hold k1 for alt: k1+e1 vel  k1+e2/3 pulses  k1+k2 panic  k1+k3 regen all
 
 local musicutil = require("musicutil")
 local er = require("er")
@@ -37,9 +32,7 @@ local OFFSET_RING = { 2, 4 }
 -- State
 -- ---------------------------------------------------------------------------
 
--- One shared phasor per voice. Its phase is interpreted against two slot
--- widths (PHASE_MAX / #pitch_lane and PHASE_MAX / #rhythm) so a single phase
--- step can advance both the pitch lane and the Euclidean gate independently.
+-- One phasor per voice; phase drives both pitch lane and Euclidean gate.
 local phasors = {}
 for v = 1, NUM_VOICES do
   phasors[v] = { speed = 0, phase = 0 }
@@ -90,7 +83,7 @@ local function refresh_midi_target()
   m = midi_devices[params:get("midi_target")]
 end
 
--- All-notes-off on every channel we use; clears stuck notes.
+-- All-notes-off on every voice channel; clears stuck notes.
 local function panic()
   if m == nil then
     return
@@ -106,7 +99,7 @@ end
 -- Params
 -- ---------------------------------------------------------------------------
 
--- Forward decls: setup_params wires set_actions that call these.
+-- Forward decls; setup_params set_actions call these.
 local regen_pitch_lane
 local regen_pitch_lanes
 local regen_rhythm
@@ -188,7 +181,7 @@ end
 -- Pattern generation
 -- ---------------------------------------------------------------------------
 
--- Distinct registers per voice so a shared root yields two octaves.
+-- Distinct registers so a shared root yields two octaves.
 local VOICE_BASE = { 60, 48 }
 
 function regen_pitch_lane(v)
@@ -232,9 +225,8 @@ end
 -- Arc input
 -- ---------------------------------------------------------------------------
 
--- Snows-style coarse stepping: emit one step per `arc_sens` raw deltas.
--- This replicates the old monome `arc_res(i, 4)` feel in software, since the
--- norns arc API exposes no hardware-resolution control.
+-- Software accumulator; emits one step per arc_sens raw deltas.
+-- Mirrors snows' arc_res(i, 4) since norns has no hardware-res arc API.
 local function on_arc_delta(n, d)
   local sens = params:get("arc_sens")
   arc_ticks[n] = arc_ticks[n] + d
@@ -282,8 +274,7 @@ end
 -- Sequencer tick
 -- ---------------------------------------------------------------------------
 
--- Slots crossed from prev to cur on a circular axis of `num` slots,
--- in direction `dir` (+1 forward, -1 backward).
+-- Slots crossed prev -> cur on a circle of `num`, direction `dir`.
 local function steps_between(prev, cur, num, dir)
   if dir > 0 then
     return (cur - prev) % num
@@ -292,7 +283,7 @@ local function steps_between(prev, cur, num, dir)
   end
 end
 
--- Note lookup: rotate within the lane and shift octaves when offset wraps.
+-- Rotate within the lane; shift an octave each time offset wraps.
 local function voice_note(v)
   local lane = voices[v].pitch_lane
   local len = #lane
@@ -305,7 +296,7 @@ local function voice_note(v)
   return lane[idx] + octave_shift
 end
 
--- Rising edge -> note_on of armed pitch; falling edge -> note_off of last.
+-- Rising edge: note_on armed pitch. Falling edge: note_off last.
 local function apply_gate(v, gate_on)
   local voice = voices[v]
   if gate_on and not voice.gate_high then
@@ -341,7 +332,7 @@ local function handle_pitch_ring(v, prev_phase, cur_phase, dir)
   end
 end
 
--- Walk one step at a time so balanced note pairs fire even at high speed.
+-- Walk one slot at a time so balanced pairs still fire at high speed.
 local function handle_rhythm_ring(v, prev_phase, cur_phase, dir)
   local pat = voices[v].rhythm
   if #pat == 0 then
@@ -406,8 +397,7 @@ local function draw_pitch_ring(v)
   point(n, phasors[v].phase)
 end
 
--- Offset ring: rhythm pattern + the same shared phasor cursor + a single
--- bright LED showing offset position within the current octave.
+-- Rhythm pattern + shared phasor cursor + offset marker.
 local function draw_offset_ring(v)
   local n = OFFSET_RING[v]
   local pat = voices[v].rhythm
@@ -426,9 +416,7 @@ local function draw_offset_ring(v)
     end
     point(n, phasors[v].phase)
   end
-  -- Map offset within an octave (0..lane_len-1) to a full ring rotation,
-  -- so each scale-degree click moves the marker visibly and a full lane
-  -- rotation reads as exactly one octave shift.
+  -- Marker maps one octave (lane_len degrees) to a full ring rotation.
   local nlen = #voices[v].pitch_lane
   if nlen > 0 then
     local within_octave = voices[v].offset % nlen

@@ -231,3 +231,38 @@ function regen_rhythms()
     regen_rhythm(v)
   end
 end
+
+-- ---------------------------------------------------------------------------
+-- Arc input
+-- ---------------------------------------------------------------------------
+
+-- Each turn of an arc encoder accumulates into that ring's signed speed.
+-- Speed is the per-tick phase delta; a positive value rolls the cursor
+-- clockwise. Clamped so a single furious twist can't lock the device.
+local function on_arc_delta(n, d)
+  local r = rings[n]
+  r.speed = util.clamp(r.speed + d, -SPEED_CLAMP, SPEED_CLAMP)
+  dirty = true
+  screen_dirty = true
+end
+
+-- The arc has a single button. Pressing it freezes the world: zero every
+-- ring's speed (snows behavior). Phases stay where they are; release
+-- alone won't restart motion -- the user has to spin again.
+local function on_arc_key(n, z)
+  if z == 1 then
+    for i = 1, NUM_RINGS do
+      rings[i].speed = 0
+    end
+    dirty = true
+    screen_dirty = true
+  end
+end
+
+-- Connect to the first arc and wire the callbacks. Safe to call once at
+-- init; arc.add / arc.remove handle reconnects after that.
+local function setup_arc()
+  a = arc.connect()
+  a.delta = on_arc_delta
+  a.key = on_arc_key
+end

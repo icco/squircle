@@ -28,7 +28,7 @@ arc 2 / 4 : voice density        (Euclidean pulses, 0..100% of lane)
 arc key   : freeze speeds
 
 enc 1 velocity   enc 2 v1 octave   enc 3 v2 octave
-key 2 regen pitches   key 3 regen rhythms
+key 2 cycle v1 scale   key 3 cycle v2 scale
 ```
 
 Each voice has its own root, scale, octave, lane length (3..32), and pulse count. Defaults to one note per rotation (snows-mode); turn arc 2 / 4 up for more notes per rotation. K1 is reserved by norns, so it isn't bound. Per-voice root / scale / lane length / channel and panic live in PARAMETERS. Arc feel matches snows via the **arc sensitivity** param (default `4`, mirrors `arc_res(i, 4)` in software).

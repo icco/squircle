@@ -11,8 +11,8 @@
 -- arc key   : freeze speeds
 --
 -- enc1 velocity   enc2 v1 octave   enc3 v2 octave
--- key2 regen pitches   key3 regen rhythms
--- per-voice root / scale / lane length / panic live in PARAMETERS
+-- key2 cycle v1 scale   key3 cycle v2 scale
+-- per-voice root / lane length / panic live in PARAMETERS
 
 local musicutil = require("musicutil")
 local er = require("er")
@@ -110,9 +110,7 @@ end
 
 -- Forward decls; setup_params set_actions call these.
 local regen_pitch_lane
-local regen_pitch_lanes
 local regen_rhythm
-local regen_rhythms
 
 local scale_names = {}
 for i, s in ipairs(musicutil.SCALES) do
@@ -200,12 +198,6 @@ function regen_pitch_lane(v)
   screen_dirty = true
 end
 
-function regen_pitch_lanes()
-  for v = 1, NUM_VOICES do
-    regen_pitch_lane(v)
-  end
-end
-
 function regen_rhythm(v)
   local len = params:get("v" .. v .. "_lane_len")
   local pulses = math.min(params:get("v" .. v .. "_pulses"), len)
@@ -220,12 +212,6 @@ function regen_rhythm(v)
   voices[v].rhythm = rhythm
   dirty = true
   screen_dirty = true
-end
-
-function regen_rhythms()
-  for v = 1, NUM_VOICES do
-    regen_rhythm(v)
-  end
 end
 
 -- ---------------------------------------------------------------------------
@@ -411,15 +397,21 @@ end
 -- Norns hardware callbacks
 -- ---------------------------------------------------------------------------
 
--- K1 is reserved (quick tap exits to menu); K2/K3 fire once on press.
+-- K1 is reserved (quick tap exits to menu). K2 / K3 cycle each voice's
+-- scale forward (wraps at the end of musicutil.SCALES).
+local function cycle_scale(v)
+  local id = "v" .. v .. "_scale"
+  params:set(id, (params:get(id) % #scale_names) + 1)
+end
+
 function key(n, z)
   if z ~= 1 then
     return
   end
   if n == 2 then
-    regen_pitch_lanes()
+    cycle_scale(1)
   elseif n == 3 then
-    regen_rhythms()
+    cycle_scale(2)
   end
   screen_dirty = true
 end
@@ -502,7 +494,7 @@ function redraw()
 
   screen.level(3)
   screen.move(2, 62)
-  screen.text("e1 vel  e2/3 oct  k2/3 regen")
+  screen.text("e1 vel  e2/3 oct  k2/3 scale")
 
   screen.update()
 end
@@ -542,9 +534,6 @@ function init()
   setup_params()
   refresh_midi_target()
   setup_arc()
-
-  regen_pitch_lanes()
-  regen_rhythms()
 
   tick_clock_id = clock.run(tick_loop)
   screen_clock_id = clock.run(screen_loop)

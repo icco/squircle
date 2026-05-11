@@ -1,12 +1,46 @@
 # squircle
 
-Squircle is a dual midi channel sequencer. It uses the four circles of arc to control the notes and gates sent over midi. In particular it is designed to talk to https://tomwhitwell.github.io/Workshop_Computer/programs/98-duo-midi/index.html or https://busycircuits.com/pages/alm023 over midi. I really like the ui of https://codeberg.org/tehn/iii-scripts/raw/branch/main/arc/snows.lua and https://github.com/tehn/ribbons .
+> dual midi sequencer for arc
 
-## references
+Four free-running phasors, two MIDI voices. Each pitch ring advances through a scale lane; each rhythm ring fires gates from a Euclidean pattern. Voice 1 lands on MIDI ch 1, voice 2 on ch 2 (configurable in PARAMETERS).
 
-- [norns scripting](https://monome.org/docs/norns/scripting/) — norns Lua API
-- [norns studies](https://monome.org/docs/norns/studies/) — grid, clock, engine, params tutorials
-- [musicutil](https://monome.org/docs/norns/reference/lib/musicutil) — scale generation and note conversion (`musicutil.NOTE_NAMES`, `musicutil.generate_scale`)
-- [pattern_time](https://monome.org/docs/norns/reference/lib/pattern_time) — free-time event recorder used for pattern capture and looping
-- [PolySub engine](https://monome.org/docs/norns/reference/engine) — built-in polyphonic subtractive synth with ADSR sustain
-- [norns tutorial thread](https://llllllll.co/t/norns-tutorial/23241) — community scripting guide
+UI inspired by [snows.lua](https://codeberg.org/tehn/iii-scripts/raw/branch/main/arc/snows.lua) and [ribbons](https://github.com/tehn/ribbons). Designed for [Music Thing 98-duo-midi](https://tomwhitwell.github.io/Workshop_Computer/programs/98-duo-midi/index.html) and [ALM mmMidi](https://busycircuits.com/pages/alm023), but works with any MIDI destination.
+
+## requirements
+
+- [norns](https://monome.org/docs/norns/) (any version with arc support)
+- [arc](https://monome.org/docs/arc/) (4 ring)
+- a MIDI destination (hardware module, synth, or another norns)
+
+## install
+
+In maiden:
+
+```
+;install https://github.com/icco/squircle
+```
+
+## controls
+
+```
+arc 1 / 3 : pitch phasor speed   (v1 / v2)
+arc 2 / 4 : rhythm phasor speed  (v1 / v2)
+arc key   : freeze (zero all four speeds)
+
+enc 1 : root           enc 2 : scale         enc 3 : pitch lane length
+key 2 : regen pitches  key 3 : regen rhythms (hold: panic)
+```
+
+Crossing a step boundary on a pitch ring advances the armed note in that voice's lane. Crossing a step on a rhythm ring evaluates the next gate slot — rising edges send `note_on` of the armed pitch, falling edges send `note_off`. Two phasors per voice running at independent rates produces snows-y phasing patterns.
+
+## parameters
+
+- **midi out** — destination MIDI port
+- **voice 1 / 2 channel** — MIDI channels (default 1 and 2)
+- **velocity** — note-on velocity for both voices
+- **root**, **scale**, **pitch lane length** — drives both pitch lanes
+- **v1 / v2 rhythm steps** and **pulses** — Euclidean pattern per voice
+
+## license
+
+[GPL-3.0](https://github.com/icco/squircle/blob/main/LICENSE)

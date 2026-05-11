@@ -595,3 +595,15 @@ function init()
     a:refresh()
   end
 end
+
+function cleanup()
+  if tick_clock_id then
+    clock.cancel(tick_clock_id)
+    tick_clock_id = nil
+  end
+  if screen_clock_id then
+    clock.cancel(screen_clock_id)
+    screen_clock_id = nil
+  end
+  panic()
+end

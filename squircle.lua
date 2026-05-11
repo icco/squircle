@@ -1,18 +1,15 @@
 -- squircle: dual midi sequencer for arc
--- v0.2.1 @icco
+-- v0.3.0 @icco
 --
--- one phasor per voice, two midi channels
+-- snows-mode: a slowly moving sequencer per voice
 --
--- arc 1 / 3 : phasor speed   (v1 / v2)
--- arc 2 / 4 : transpose      (v1 / v2, scale-degree, wraps octaves)
+-- arc 1 / 3 : voice phasor speed   (snows-style sequence + cursor)
+-- arc 2 / 4 : voice lane length    (virtual encoder, 0..100%)
 -- arc key   : freeze speeds
 --
--- ribbons-style display: notes appear at their chromatic position on
--- arc 1/3; turning arc 2/4 shifts the whole layout around the ring.
---
--- enc1 root   enc2 scale   enc3 lane length
+-- enc1 root   enc2 scale   enc3 velocity
 -- key2 regen pitches   key3 regen rhythms
--- panic and other params live in PARAMETERS
+-- panic and rhythm pulses live in PARAMETERS
 
 local musicutil = require("musicutil")
 local er = require("er")
@@ -29,18 +26,17 @@ local SPEED_CLAMP = 32
 local NUM_VOICES = 2
 local NUM_RINGS = 4
 
--- ring layout: voice v owns rings (v*2 - 1) pitch and (v*2) transpose
-local PITCH_RING = { 1, 3 }
-local TRANSPOSE_RING = { 2, 4 }
+-- ring layout: voice v owns rings (v*2 - 1) sequence and (v*2) length
+local SEQ_RING = { 1, 3 }
+local LEN_RING = { 2, 4 }
 
--- ribbons-style chromatic-anchor offset (sets where root sits on ring)
-local RING_OFFSET = 40
+local LANE_LEN_MIN = 3
+local LANE_LEN_MAX = 12
 
 -- ---------------------------------------------------------------------------
 -- State
 -- ---------------------------------------------------------------------------
 
--- One phasor per voice; phase drives both pitch lane and Euclidean gate.
 local phasors = {}
 for v = 1, NUM_VOICES do
   phasors[v] = { speed = 0, phase = 0 }
@@ -52,7 +48,6 @@ for v = 1, NUM_VOICES do
     ch = v,
     pitch_lane = {},
     pitch_idx = 1,
-    offset = 0, -- scale-degree transpose, unbounded; wraps an octave per lane_len
     rhythm = {},
     gate_idx = 0,
     gate_high = false,
@@ -142,20 +137,16 @@ local function setup_params()
   params:add_trigger("panic", "panic (all notes off)")
   params:set_action("panic", panic)
 
-  params:add_group("voices", 8)
+  params:add_group("voices", 7)
   params:add_number("v1_ch", "voice 1 channel", 1, 16, 1)
   params:add_number("v2_ch", "voice 2 channel", 1, 16, 2)
-  params:add_number("v1_transpose", "v1 transpose", -24, 24, 0)
-  params:set_action("v1_transpose", function(x)
-    voices[1].offset = x
-    dirty = true
-    screen_dirty = true
+  params:add_number("v1_lane_len", "v1 lane length", LANE_LEN_MIN, LANE_LEN_MAX, 5)
+  params:set_action("v1_lane_len", function()
+    regen_pitch_lane(1)
   end)
-  params:add_number("v2_transpose", "v2 transpose", -24, 24, 0)
-  params:set_action("v2_transpose", function(x)
-    voices[2].offset = x
-    dirty = true
-    screen_dirty = true
+  params:add_number("v2_lane_len", "v2 lane length", LANE_LEN_MIN, LANE_LEN_MAX, 5)
+  params:set_action("v2_lane_len", function()
+    regen_pitch_lane(2)
   end)
   params:add_number("velocity", "velocity", 1, 127, 100)
   params:add_option("root", "root", musicutil.NOTE_NAMES, 1)
@@ -164,10 +155,6 @@ local function setup_params()
   end)
   params:add_option("scale", "scale", scale_names, scale_index("Natural Minor"))
   params:set_action("scale", function()
-    regen_pitch_lanes()
-  end)
-  params:add_number("lane_len", "pitch lane length", 3, 12, 5)
-  params:set_action("lane_len", function()
     regen_pitch_lanes()
   end)
 
@@ -179,7 +166,7 @@ local function setup_params()
     end
     regen_rhythm(1)
   end)
-  params:add_number("v1_pulses", "v1 rhythm pulses", 1, 32, 5)
+  params:add_number("v1_pulses", "v1 rhythm pulses", 1, 32, 16)
   params:set_action("v1_pulses", function()
     regen_rhythm(1)
   end)
@@ -190,7 +177,7 @@ local function setup_params()
     end
     regen_rhythm(2)
   end)
-  params:add_number("v2_pulses", "v2 rhythm pulses", 1, 32, 7)
+  params:add_number("v2_pulses", "v2 rhythm pulses", 1, 32, 16)
   params:set_action("v2_pulses", function()
     regen_rhythm(2)
   end)
@@ -208,7 +195,7 @@ local VOICE_BASE = { 60, 48 }
 function regen_pitch_lane(v)
   local root = (params:get("root") - 1) + VOICE_BASE[v]
   local scale_name = scale_names[params:get("scale")]
-  local len = params:get("lane_len")
+  local len = params:get("v" .. v .. "_lane_len")
   voices[v].pitch_lane = musicutil.generate_scale_of_length(root, scale_name, len)
   if voices[v].pitch_idx > #voices[v].pitch_lane then
     voices[v].pitch_idx = 1
@@ -265,13 +252,13 @@ local function on_arc_delta(n, d)
   if n % 2 == 1 then
     phasors[v].speed = util.clamp(phasors[v].speed + val, -SPEED_CLAMP, SPEED_CLAMP)
   else
-    params:delta("v" .. v .. "_transpose", val)
+    params:delta("v" .. v .. "_lane_len", val)
   end
   dirty = true
   screen_dirty = true
 end
 
--- Arc key freezes both voice phasors. Offsets are persistent.
+-- Arc key freezes both voice phasors.
 local function on_arc_key(n, z)
   if z == 1 then
     for v = 1, NUM_VOICES do
@@ -304,17 +291,12 @@ local function steps_between(prev, cur, num, dir)
   end
 end
 
--- Rotate within the lane; shift an octave each time offset wraps.
 local function voice_note(v)
   local lane = voices[v].pitch_lane
-  local len = #lane
-  if len == 0 then
+  if #lane == 0 then
     return nil
   end
-  local k = (voices[v].pitch_idx - 1) + voices[v].offset
-  local idx = (k % len) + 1
-  local octave_shift = math.floor(k / len) * 12
-  return lane[idx] + octave_shift
+  return lane[voices[v].pitch_idx]
 end
 
 -- Rising edge: note_on armed pitch. Falling edge: note_off last.
@@ -392,54 +374,50 @@ end
 -- Arc drawing
 -- ---------------------------------------------------------------------------
 
--- Ribbons-style chromatic placement: each note shows up at its MIDI value
--- mod 64 (anchored by RING_OFFSET). Turn the transpose wheel and every
--- note's chromatic position shifts, so arc 1/3 and arc 2/4 visibly
--- rotate together.
-local function chromatic_pos(note)
-  return (note + RING_OFFSET) % RING_LEDS + 1
+-- snows.lua triple-LED interpolated cursor.
+local function point(ring, x)
+  local xi = math.floor(x)
+  local c = xi >> 4
+  a:led(ring, c % 64 + 1, 15)
+  a:led(ring, (c + 1) % 64 + 1, xi % 16)
+  a:led(ring, (c + 63) % 64 + 1, 15 - (xi % 16))
 end
 
--- Note at lane index i (0-based) with the voice's transpose applied.
-local function lane_note_at(v, i)
-  local lane = voices[v].pitch_lane
-  local len = #lane
-  local k = i + voices[v].offset
-  local idx = (k % len) + 1
-  local octave_shift = math.floor(k / len) * 12
-  return lane[idx] + octave_shift
+local function slot_led(i, nlen)
+  return math.floor(i * RING_LEDS / nlen) + 1
 end
 
-local function draw_pitch_ring(v)
-  local n = PITCH_RING[v]
+-- snows-style: every slot dim, current armed slot brighter, phasor cursor.
+local function draw_seq_ring(v)
+  local n = SEQ_RING[v]
   local len = #voices[v].pitch_lane
   if len == 0 then
     return
   end
   for i = 0, len - 1 do
-    a:led(n, chromatic_pos(lane_note_at(v, i)), 3)
+    a:led(n, slot_led(i, len), (i + 1 == voices[v].pitch_idx) and 9 or 1)
   end
-  -- Bright LED at the currently armed note's chromatic position.
-  local now_note = voice_note(v)
-  if now_note then
-    a:led(n, chromatic_pos(now_note), 15)
-  end
+  point(n, phasors[v].phase)
 end
 
--- Transpose ring: same chromatic layout (so the wheel feels coupled to
--- the pitch ring) plus a brighter marker on the lane's current downbeat
--- (lane index 0 with transpose applied) so turning the wheel produces
--- immediate motion on this ring as well.
-local function draw_transpose_ring(v)
-  local n = TRANSPOSE_RING[v]
-  local len = #voices[v].pitch_lane
-  if len == 0 then
-    return
+-- Virtual 0..100% encoder: filled arc from LED 1 to a position
+-- proportional to where v's lane length sits in [LANE_LEN_MIN..MAX].
+local function draw_len_ring(v)
+  local n = LEN_RING[v]
+  local len = params:get("v" .. v .. "_lane_len")
+  local frac = (len - LANE_LEN_MIN) / (LANE_LEN_MAX - LANE_LEN_MIN)
+  local fill = math.floor(frac * RING_LEDS + 0.5)
+  for i = 1, RING_LEDS do
+    a:led(n, i, 1)
   end
-  for i = 0, len - 1 do
-    a:led(n, chromatic_pos(lane_note_at(v, i)), 3)
+  for i = 1, fill do
+    a:led(n, i, 8)
   end
-  a:led(n, chromatic_pos(lane_note_at(v, 0)), 15)
+  if fill >= 1 then
+    a:led(n, fill, 15)
+  else
+    a:led(n, 1, 15)
+  end
 end
 
 local function draw_arc()
@@ -448,8 +426,8 @@ local function draw_arc()
   end
   a:all(0)
   for v = 1, NUM_VOICES do
-    draw_pitch_ring(v)
-    draw_transpose_ring(v)
+    draw_seq_ring(v)
+    draw_len_ring(v)
   end
 end
 
@@ -477,7 +455,7 @@ function enc(n, d)
   elseif n == 2 then
     params:delta("scale", d)
   elseif n == 3 then
-    params:delta("lane_len", d)
+    params:delta("velocity", d)
   end
   screen_dirty = true
 end
@@ -512,10 +490,8 @@ local function draw_voice_row(v, y)
   screen.level(6)
   screen.move(72, y)
   screen.text("s:" .. speed_glyph(phasors[v].speed))
-  screen.move(98, y)
-  local off = voice.offset
-  local off_str = (off >= 0) and ("t:+" .. off) or ("t:" .. off)
-  screen.text(off_str)
+  screen.move(102, y)
+  screen.text("l:" .. params:get("v" .. v .. "_lane_len"))
 end
 
 function redraw()
@@ -535,7 +511,7 @@ function redraw()
 
   screen.level(3)
   screen.move(2, 62)
-  screen.text("arc 2/4 transpose   k2/3 regen")
+  screen.text("arc 2/4 lane len   k2/3 regen")
 
   screen.update()
 end

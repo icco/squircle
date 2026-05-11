@@ -23,17 +23,17 @@ In maiden:
 ## controls
 
 ```
-arc 1 / 3 : phasor speed   (v1 / v2, drives pitch + rhythm)
-arc 2 / 4 : transpose      (v1 / v2, scale-degree, wraps octaves)
+arc 1 / 3 : voice phasor speed   (snows-style sequence + cursor)
+arc 2 / 4 : voice lane length    (virtual encoder, 0..100%)
 arc key   : freeze speeds
 
-enc 1 root   enc 2 scale   enc 3 lane length
+enc 1 root   enc 2 scale   enc 3 velocity
 key 2 regen pitches   key 3 regen rhythms
 ```
 
-Each pitch ring (arc 1 / 3) lays its lane out chromatically the way `ribbons` does: every note in the (transposed) lane lights a dim LED at its `(note + 40) % 64 + 1` position; the currently armed note is bright. The transpose wheel (arc 2 / 4) shows the same chromatic layout plus a brighter marker on the lane's downbeat — so turning arc 2 visibly rotates both rings.
+Designed as a slowly-moving performance device. Each voice has one phasor, drawn snows-style on arc 1 / 3: every step in the lane is a dim LED, the armed step is brighter, and the snows triple-LED interpolated cursor sweeps the phase. Arc 2 / 4 are virtual encoders — turning them changes how many steps live on the matching arc 1 / 3 ring (lane length, 3..12) and the fill grows / shrinks 0..100% around the ring as visual feedback.
 
-K1 is reserved by norns (a quick tap exits to the system menu), so this script doesn't bind it. Panic, transpose, MIDI channels, and rhythm steps / pulses live in PARAMETERS.
+K1 is reserved by norns (a quick tap exits to the system menu), so this script doesn't bind it. Panic, MIDI channels, and rhythm steps / pulses live in PARAMETERS. Default rhythm is all-on so notes fire on every step (snows behavior); reduce v1 / v2 pulses in PARAMETERS for sparser Euclidean patterns.
 
 Arc encoder feel matches snows: the **arc sensitivity** param (default `4`) sets raw arc deltas per emitted step, mirroring `arc_res(i, 4)` in software.
 
@@ -43,10 +43,10 @@ Arc encoder feel matches snows: the **arc sensitivity** param (default `4`) sets
 - **arc sensitivity** — `1` most sensitive … `16` slowest
 - **panic** — trigger; sends all-notes-off on every voice channel
 - **voice 1 / 2 channel** — MIDI channels (default 1, 2)
-- **v1 / v2 transpose** — scale-degree transpose (also arc 2 / 4)
-- **velocity** — note-on velocity
-- **root**, **scale**, **pitch lane length** — both lanes (e1 / e2 / e3)
-- **v1 / v2 rhythm steps + pulses** — Euclidean per voice
+- **v1 / v2 lane length** — pitch slots per voice (also arc 2 / 4)
+- **velocity** — note-on velocity (also e3)
+- **root**, **scale** — both lanes (e1 / e2)
+- **v1 / v2 rhythm steps + pulses** — Euclidean per voice (default all-on)
 
 ## references
 

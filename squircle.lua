@@ -3,13 +3,13 @@
 --
 -- snows-mode: a slowly moving sequencer per voice
 --
--- arc 1 / 3 : voice phasor speed   (snows-style sequence + cursor)
--- arc 2 / 4 : voice lane length    (virtual encoder, 0..100%)
+-- arc 1 / 3 : voice phasor speed     (snows-style sequence + cursor)
+-- arc 2 / 4 : voice rhythm density   (Euclidean pulses, 0..100%)
 -- arc key   : freeze speeds
 --
 -- enc1 root   enc2 scale   enc3 velocity
 -- key2 regen pitches   key3 regen rhythms
--- panic and rhythm pulses live in PARAMETERS
+-- panic, lane length, rhythm steps live in PARAMETERS
 
 local musicutil = require("musicutil")
 local er = require("er")
@@ -26,12 +26,15 @@ local SPEED_CLAMP = 32
 local NUM_VOICES = 2
 local NUM_RINGS = 4
 
--- ring layout: voice v owns rings (v*2 - 1) sequence and (v*2) length
+-- ring layout: voice v owns rings (v*2 - 1) sequence and (v*2) density
 local SEQ_RING = { 1, 3 }
-local LEN_RING = { 2, 4 }
+local PULSE_RING = { 2, 4 }
 
 local LANE_LEN_MIN = 3
 local LANE_LEN_MAX = 12
+
+local PULSES_MIN = 0
+local PULSES_MAX = 32
 
 -- ---------------------------------------------------------------------------
 -- State
@@ -159,26 +162,36 @@ local function setup_params()
   end)
 
   params:add_group("rhythm", 4)
-  params:add_number("v1_steps", "v1 rhythm steps", 4, 32, 16)
+  params:add_number("v1_steps", "v1 rhythm steps", 4, PULSES_MAX, 16)
   params:set_action("v1_steps", function(v)
     if params:get("v1_pulses") > v then
       params:set("v1_pulses", v)
     end
     regen_rhythm(1)
   end)
-  params:add_number("v1_pulses", "v1 rhythm pulses", 1, 32, 16)
-  params:set_action("v1_pulses", function()
+  params:add_number("v1_pulses", "v1 rhythm pulses", PULSES_MIN, PULSES_MAX, 16)
+  params:set_action("v1_pulses", function(p)
+    local steps = params:get("v1_steps")
+    if p > steps then
+      params:set("v1_pulses", steps)
+      return
+    end
     regen_rhythm(1)
   end)
-  params:add_number("v2_steps", "v2 rhythm steps", 4, 32, 16)
+  params:add_number("v2_steps", "v2 rhythm steps", 4, PULSES_MAX, 16)
   params:set_action("v2_steps", function(v)
     if params:get("v2_pulses") > v then
       params:set("v2_pulses", v)
     end
     regen_rhythm(2)
   end)
-  params:add_number("v2_pulses", "v2 rhythm pulses", 1, 32, 16)
-  params:set_action("v2_pulses", function()
+  params:add_number("v2_pulses", "v2 rhythm pulses", PULSES_MIN, PULSES_MAX, 16)
+  params:set_action("v2_pulses", function(p)
+    local steps = params:get("v2_steps")
+    if p > steps then
+      params:set("v2_pulses", steps)
+      return
+    end
     regen_rhythm(2)
   end)
 
@@ -213,7 +226,17 @@ end
 function regen_rhythm(v)
   local steps = params:get("v" .. v .. "_steps")
   local pulses = params:get("v" .. v .. "_pulses")
-  voices[v].rhythm = er.gen(pulses, steps)
+  if pulses <= 0 then
+    -- All-rests pattern; the phasor still walks slots so gate_high
+    -- closes any held note, but no new note_on fires.
+    local rhythm = {}
+    for i = 1, steps do
+      rhythm[i] = false
+    end
+    voices[v].rhythm = rhythm
+  else
+    voices[v].rhythm = er.gen(pulses, steps)
+  end
   if #voices[v].rhythm > 0 then
     voices[v].gate_idx = voices[v].gate_idx % #voices[v].rhythm
   else
@@ -252,7 +275,7 @@ local function on_arc_delta(n, d)
   if n % 2 == 1 then
     phasors[v].speed = util.clamp(phasors[v].speed + val, -SPEED_CLAMP, SPEED_CLAMP)
   else
-    params:delta("v" .. v .. "_lane_len", val)
+    params:delta("v" .. v .. "_pulses", val)
   end
   dirty = true
   screen_dirty = true
@@ -400,23 +423,18 @@ local function draw_seq_ring(v)
   point(n, phasors[v].phase)
 end
 
--- Virtual 0..100% encoder: filled arc from LED 1 to a position
--- proportional to where v's lane length sits in [LANE_LEN_MIN..MAX].
-local function draw_len_ring(v)
-  local n = LEN_RING[v]
-  local len = params:get("v" .. v .. "_lane_len")
-  local frac = (len - LANE_LEN_MIN) / (LANE_LEN_MAX - LANE_LEN_MIN)
-  local fill = math.floor(frac * RING_LEDS + 0.5)
-  for i = 1, RING_LEDS do
-    a:led(n, i, 1)
+-- Hard-on fill arc 0..100%: LEDs 1..fill are on, the rest are off.
+-- 0 pulses -> empty ring (silence); pulses == steps -> full ring.
+local function draw_pulse_ring(v)
+  local n = PULSE_RING[v]
+  local pulses = params:get("v" .. v .. "_pulses")
+  local steps = params:get("v" .. v .. "_steps")
+  if steps <= 0 then
+    return
   end
+  local fill = math.floor(pulses / steps * RING_LEDS + 0.5)
   for i = 1, fill do
-    a:led(n, i, 8)
-  end
-  if fill >= 1 then
-    a:led(n, fill, 15)
-  else
-    a:led(n, 1, 15)
+    a:led(n, i, 15)
   end
 end
 
@@ -427,7 +445,7 @@ local function draw_arc()
   a:all(0)
   for v = 1, NUM_VOICES do
     draw_seq_ring(v)
-    draw_len_ring(v)
+    draw_pulse_ring(v)
   end
 end
 
@@ -491,7 +509,9 @@ local function draw_voice_row(v, y)
   screen.move(72, y)
   screen.text("s:" .. speed_glyph(phasors[v].speed))
   screen.move(102, y)
-  screen.text("l:" .. params:get("v" .. v .. "_lane_len"))
+  local pulses = params:get("v" .. v .. "_pulses")
+  local steps = params:get("v" .. v .. "_steps")
+  screen.text("p:" .. pulses .. "/" .. steps)
 end
 
 function redraw()
@@ -511,7 +531,7 @@ function redraw()
 
   screen.level(3)
   screen.move(2, 62)
-  screen.text("arc 2/4 lane len   k2/3 regen")
+  screen.text("arc 2/4 density   k2/3 regen")
 
   screen.update()
 end

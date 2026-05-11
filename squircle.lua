@@ -9,7 +9,7 @@
 --
 -- enc1 velocity   enc2 v1 octave   enc3 v2 octave
 -- key2 cycle v1 scale   key3 cycle v2 scale
--- per-voice root / lane length / panic live in PARAMETERS
+-- per-voice root / lane length live in PARAMETERS
 
 local musicutil = require("musicutil")
 local er = require("er")
@@ -122,9 +122,6 @@ local function setup_params()
 
   -- Raw deltas per emitted step (snows arc_res(i, 4) feel at 4).
   params:add_number("arc_sens", "arc sensitivity", 1, 16, 4)
-
-  params:add_trigger("panic", "panic (all notes off)")
-  params:set_action("panic", panic)
 
   params:add_number("velocity", "velocity", 1, 127, 100)
 

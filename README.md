@@ -31,13 +31,12 @@ enc 1 velocity   enc 2 v1 octave   enc 3 v2 octave
 key 2 cycle v1 scale   key 3 cycle v2 scale
 ```
 
-Each voice has its own root, scale, octave, lane length (3..32), and pulse count. Defaults to one note per rotation (snows-mode); turn arc 2 / 4 up for more notes per rotation. K1 is reserved by norns, so it isn't bound. Per-voice root / scale / lane length / channel and panic live in PARAMETERS. Arc feel matches snows via the **arc sensitivity** param (default `4`, mirrors `arc_res(i, 4)` in software).
+Each voice has its own root, scale, octave, lane length (3..32), and pulse count. Defaults to one note per rotation (snows-mode); turn arc 2 / 4 up for more notes per rotation. K1 is reserved by norns, so it isn't bound. Per-voice root / scale / lane length / channel live in PARAMETERS. Arc feel matches snows via the **arc sensitivity** param (default `4`, mirrors `arc_res(i, 4)` in software).
 
 ## parameters
 
-- **midi out** — destination MIDI port
+- **midi out** — destination MIDI port (changing it sends all-notes-off)
 - **arc sensitivity** — `1` most sensitive … `16` slowest
-- **panic** — trigger; all-notes-off on every voice channel
 - **velocity** — note-on velocity (also e1)
 - per voice (`voice 1` / `voice 2` groups):
   - **channel** — MIDI channel

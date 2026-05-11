@@ -179,3 +179,55 @@ local function setup_params()
 
   params:bang()
 end
+
+-- ---------------------------------------------------------------------------
+-- Pattern generation
+-- ---------------------------------------------------------------------------
+
+-- Per-voice base MIDI note. Voice 1 sits around middle C (octave 4),
+-- voice 2 an octave below so the two lanes occupy distinct registers
+-- when feeding a single sound source (e.g. 98-duo-midi mono mode).
+local VOICE_BASE = { 60, 48 }
+
+-- Build voice v's pitch lane: lane_len notes starting from root in the
+-- current scale, anchored to that voice's base octave. Snapped to scale
+-- by construction.
+function regen_pitch_lane(v)
+  local root = (params:get("root") - 1) + VOICE_BASE[v]
+  local scale_name = scale_names[params:get("scale")]
+  local len = params:get("lane_len")
+  voices[v].pitch_lane = musicutil.generate_scale_of_length(root, scale_name, len)
+  if voices[v].pitch_idx > #voices[v].pitch_lane then
+    voices[v].pitch_idx = 1
+  end
+  dirty = true
+  screen_dirty = true
+end
+
+function regen_pitch_lanes()
+  for v = 1, NUM_VOICES do
+    regen_pitch_lane(v)
+  end
+end
+
+-- Build voice v's rhythm pattern via Euclidean distribution. Resulting
+-- table is length steps with boolean gates; gate_idx wraps to the new
+-- length so a step shrink doesn't dangle.
+function regen_rhythm(v)
+  local steps = params:get("v" .. v .. "_steps")
+  local pulses = params:get("v" .. v .. "_pulses")
+  voices[v].rhythm = er.gen(pulses, steps)
+  if #voices[v].rhythm > 0 then
+    voices[v].gate_idx = voices[v].gate_idx % #voices[v].rhythm
+  else
+    voices[v].gate_idx = 0
+  end
+  dirty = true
+  screen_dirty = true
+end
+
+function regen_rhythms()
+  for v = 1, NUM_VOICES do
+    regen_rhythm(v)
+  end
+end
